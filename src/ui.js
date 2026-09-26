@@ -392,6 +392,12 @@ export class UI {
     $('muteBtn').textContent = `Sound: ${isMuted() ? 'off' : 'on'}`;
   }
 
+  setQualityLabel(q) {
+    const label = `Graphics: ${q[0].toUpperCase()}${q.slice(1)}`;
+    $('qualityBtn').textContent = label;
+    $('qualityBtn2').textContent = label;
+  }
+
   hidePause() {
     this.hide('pause');
   }
@@ -419,5 +425,7 @@ export class UI {
     $('equipBtn').onclick = handlers.equip;
     $('salvageBtn').onclick = handlers.salvage;
     $('pauseBtn').onclick = handlers.pause;
+    $('qualityBtn').onclick = handlers.quality;
+    $('qualityBtn2').onclick = handlers.quality;
   }
 }

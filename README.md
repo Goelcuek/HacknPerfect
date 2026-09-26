@@ -4,8 +4,8 @@ A 3D hack-n-slash roguelike that runs in the browser on **phones and PCs**. Figh
 procedurally generated dungeons, collect loot, pick upgrades between floors, and take on a boss
 every 5 floors.
 
-Built with plain ES modules and [three.js](https://threejs.org) (vendored in `vendor/`), so there
-is no build step.
+Built with plain ES modules and [three.js](https://threejs.org) (vendored in `vendor/`, including
+the bloom and geometry-merging addons), so there is no build step.
 
 ## Play locally
 
@@ -76,6 +76,26 @@ Skills fill the swipe directions in order: first ↑ (`Q`), then → (`E`), ↓ 
   every 5th floor. Enemies can be burned, poisoned, slowed, frozen, stunned or dazed.
 - **Death is permanent.** Your best floor is saved in the browser.
 
+## Graphics
+
+Everything is procedural (no image or model files): stone, brick, wood and rug textures with
+normal maps are generated on startup, and each floor is dressed with themed detail — plinths,
+cornices, pilasters and door columns, banners, bookshelves, skull niches, chains, cobwebs, moss and
+vines, lava cracks, crystals, statues, sarcophagi, altars, braziers, forges, barrels and crates,
+flickering torch and candle flames, drifting dust/spores/embers and light shafts.
+
+Characters use a jointed rig driven by damped springs: stride-matched walk/run cycles, weight
+shift, breathing, blinking, head tracking, lean into turns and acceleration, landing squash,
+idle fidgets per class, cape physics and weapon swing trails.
+
+Use **Graphics** on the title or pause screen to switch quality:
+
+| Setting | Effects                                  | Default on     |
+| ------- | ---------------------------------------- | -------------- |
+| Low     | No bloom or shadows, less clutter        |                |
+| Medium  | Bloom, ambient particles                 | Phones/tablets |
+| High    | Bloom, real-time shadows, full detail    | Desktop        |
+
 ## Code layout
 
 | File              | Purpose                                                         |
@@ -89,7 +109,10 @@ Skills fill the swipe directions in order: first ↑ (`Q`), then → (`E`), ↓ 
 | `src/hero.js`     | Builds each class's hero and dresses it from equipment          |
 | `src/gear.js`     | Weapon models (sword, bow, staff, daggers) and loot drop models |
 | `src/enemies.js`  | Enemy models, animation, status effects, AI, boss patterns      |
-| `src/dungeon.js`  | Procedural rooms + corridors, collision, flow-field pathfinding |
+| `src/dungeon.js`  | Procedural rooms + corridors, prop placement, collision, pathfinding |
+| `src/decor.js`    | Environment dressing: walls, props, clutter, fire, glow, particles |
+| `src/textures.js` | Procedural albedo / normal / roughness textures                 |
+| `src/tiles.js`    | Tile constants and dungeon themes                               |
 | `src/items.js`    | Item generation, rarities, affixes, shrine blessings            |
 | `src/input.js`    | Keyboard / mouse / touch (joystick, swipe-to-skill)             |
 | `src/ui.js`       | HUD, minimap, loot card, class select, skill picks, menus       |

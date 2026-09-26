@@ -979,3 +979,7 @@ body.touch .pc-only {
   color: #7adf4a;
   font-size: 14px;
 }
+button.small {
+  padding: 6px 14px;
+  font-size: 13px;
+}

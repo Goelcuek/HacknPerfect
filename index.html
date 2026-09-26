@@ -9,7 +9,7 @@
     <title>Hack n Perfect</title>
     <link rel="stylesheet" href="style.css" />
     <script type="importmap">
-      { "imports": { "three": "./vendor/three.module.min.js" } }
+      { "imports": { "three": "./vendor/three.module.min.js", "three/addons/": "./vendor/addons/" } }
     </script>
   </head>
   <body>
@@ -67,6 +67,7 @@
         <h1>HACK<span>n</span>PERFECT</h1>
         <p class="subtitle">Descend the dungeon. Loot everything. Don't die.</p>
         <button id="playBtn" class="primary">▶ Play</button>
+        <button id="qualityBtn" class="secondary small">Graphics: High</button>
         <p id="bestText"></p>
         <div class="controls">
           <div class="pc-only">
@@ -116,6 +117,7 @@
         <div class="row-buttons">
           <button id="resumeBtn" class="primary">Resume</button>
           <button id="muteBtn" class="secondary">Sound: on</button>
+          <button id="qualityBtn2" class="secondary">Graphics: High</button>
           <button id="quitBtn" class="secondary">Abandon run</button>
         </div>
       </div>

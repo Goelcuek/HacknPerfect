@@ -113,6 +113,7 @@ function bow(variant, tier, M) {
   // string halves + nocked arrow
   const s1 = part(g, G.cyl(0.006, 0.006, 1, 4), M.string);
   const s2 = part(g, G.cyl(0.006, 0.006, 1, 4), M.string);
+  s1.userData.keep = s2.userData.keep = true;
   const arrow = new THREE.Group();
   part(arrow, G.cyl(0.01, 0.01, 0.75, 5), M.wood, [0, 0, 0.37], [Math.PI / 2, 0, 0]);
   part(arrow, G.cone(0.025, 0.08, 5), M.metal, [0, 0, 0.78], [Math.PI / 2, 0, 0]);

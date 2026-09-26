@@ -61,6 +61,7 @@ function noise(dur, freq, q = 1, vol = 0.3, type = 'bandpass', freqEnd = null) {
 }
 
 export const sfx = {
+  step: () => noise(0.05, 300 + Math.random() * 200, 1.2, 0.06, 'lowpass'),
   swing: () => noise(0.12, 1800, 0.8, 0.25, 'bandpass', 600),
   hit: () => {
     tone('square', 220, 60, 0.1, 0.18);

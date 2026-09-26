@@ -2,7 +2,7 @@
 // the weapon model, armor pieces by rarity tier and the charm all show on the body.
 
 import * as THREE from 'three';
-import { Rig, G, mat, part, buildHumanBody, buildFace } from './rig.js';
+import { Rig, G, mat, part, buildHumanBody, buildFace, mergeStatic } from './rig.js';
 import { CLASSES } from './classes.js';
 import { buildWeapon } from './gear.js';
 
@@ -39,8 +39,10 @@ export function buildHero(clsId) {
   };
   mats.brow = mats.hair;
   mats.glove = clsId === 'mage' ? mats.skin : mats.leather;
-  const parts = buildHumanBody(rig, { skin: mats.skin, cloth: mats.cloth, cloth2: mats.cloth2, boots: mats.boots, glove: mats.glove }, { headR: HEAD_R, ...spec.body });
+  const parts = buildHumanBody(rig, { skin: mats.skin, cloth: mats.cloth, cloth2: mats.cloth2, boots: mats.boots, glove: mats.glove, sole: (mats.sole = mat(0x2a2018, { rough: 0.95 })) }, { headR: HEAD_R, ...spec.body });
   const face = buildFace(rig, mats, { headR: HEAD_R });
+  tailor(rig, mats, clsId, spec.body);
+  mergeStatic(rig.root);
 
   const hero = { cls, clsId, rig, mats, parts, face, mesh: rig.root, slots: {}, weapon: null, cape: null, orbit: null, tier: -1 };
   const j = rig.j;
@@ -60,6 +62,23 @@ export function buildHero(clsId) {
   }
   hero.body = spec.body;
   return hero;
+}
+
+// Always-on tailoring: collar, cuffs, seams and buttons so bare outfits read as clothes.
+function tailor(rig, m, clsId, b) {
+  const j = rig.j;
+  const ch = rig.o.chestH;
+  const dz = b.torsoD / b.torsoW;
+  part(j.chest, G.torus(0.085, 0.02, Math.PI * 2, 6, 16), m.cloth2, [0, ch * 1.0, 0], [Math.PI / 2, 0, 0], [1, dz * 1.4, 1]);
+  for (const side of ['L', 'R']) {
+    part(j['fore' + side], G.torus(b.limbR * 0.95, b.limbR * 0.22, Math.PI * 2, 5, 12), clsId === 'mage' ? m.cloth : m.leather, [0, -0.02, 0], [Math.PI / 2, 0, 0]);
+    part(j['hand' + side], G.torus(b.limbR * 0.72, b.limbR * 0.16, Math.PI * 2, 5, 12), clsId === 'mage' ? m.skin : m.leather, [0, 0.02, 0], [Math.PI / 2, 0, 0]);
+  }
+  // front placket with buttons
+  part(j.chest, G.box(0.03, ch * 0.7, 0.012), m.cloth2, [0, ch * 0.42, b.torsoD * 0.52 * 1.06]);
+  for (let i = 0; i < 3; i++) part(j.chest, G.sphere(0.012, 6, 4), m.trim, [0, ch * (0.2 + i * 0.2), b.torsoD * 0.54 * 1.07]);
+  // shoulder seams
+  for (const s of [1, -1]) part(j.chest, G.torus(b.limbR * 1.3, 0.008, Math.PI * 2, 4, 14), m.cloth2, [s * rig.o.shoulderW, ch * 0.82, 0], [0, 0, Math.PI / 2]);
 }
 
 function clearSlot(g) {
@@ -131,7 +150,7 @@ function hair(hero) {
   const g = new THREE.Group();
   h.add(g);
   // skull cap tilted back so the forehead and face stay clear
-  const cap = part(g, hairGeo, m.hair, [0, 0.148, -0.006], [-0.42, 0, 0], [1.06, 1.1, 1.08]);
+  const cap = part(g, hairGeo, m.hair, [0, 0.16, -0.012], [-0.42, 0, 0], [1.13, 1.12, 1.2]);
   cap.userData.hair = true;
   if (hero.clsId === 'knight') {
     part(g, G.box(0.2, 0.08, 0.07), m.hair, [0, 0.03, 0.12]);
@@ -385,6 +404,9 @@ export function dressHero(hero, equipment) {
     if (built.main) hero.slots.handRMount.add(built.main);
     if (built.off) hero.slots.handLMount.add(built.off);
   }
+
+  // bake static gear into one mesh per material per slot (fewer draw calls)
+  for (const k in hero.slots) mergeStatic(hero.slots[k]);
 
   // charm: amulet on the chest, plus an orbiting gem for epic+
   const c = equipment.charm;

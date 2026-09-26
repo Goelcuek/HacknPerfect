@@ -9,6 +9,7 @@ import { SLOTS } from './items.js';
 import { CLASSES } from './classes.js';
 import { SKILLS, MAX_SKILL_LEVEL } from './skills.js';
 import { buildHero, dressHero } from './hero.js';
+import { Trail } from './effects.js';
 
 const GRAVITY = 28;
 const JUMP_V = 10;
@@ -60,6 +61,9 @@ function baseStats(cls) {
     ...cls.stats,
   };
 }
+
+// joints that trail the core a little (hands, forearms, head, feet)
+const LOOSE = { foreL: 0.8, foreR: 0.8, handL: 0.7, handR: 0.7, head: 0.75, neck: 0.85, footL: 1.1, footR: 1.1 };
 
 const ease = (t) => (t < 0 ? 0 : t > 1 ? 1 : t * t * (3 - 2 * t));
 const easeOut = (t) => 1 - (1 - clamp(t, 0, 1)) ** 3;
@@ -160,7 +164,9 @@ export class Player {
   }
 
   dress() {
+    this.disposeTrails();
     dressHero(this.hero, this.equipment);
+    if (this.game.applyShadows) this.game.applyShadows(this.mesh);
   }
 
   // ----------------------------------------------------------------- stats
@@ -708,63 +714,128 @@ export class Player {
     const rig = hero.rig;
     const P = rig.pose;
     const m = this.mesh;
+    const A = this.anim || (this.anim = { prevHeading: this.heading, prevSpeed: 0, accLean: 0, bank: 0, idleT: 0, fidget: null, nextFidget: 3 + Math.random() * 3, blinkT: 2, stepSide: 0, look: 0, capeV: [0, 0], capeA: [0.12, 0], hairV: 0 });
     m.position.set(this.x, this.y, this.z);
     m.rotation.y = this.heading;
     rig.resetPose();
 
     const hs = this.speed;
-    const run = this.grounded ? clamp(hs / 7.5, 0, 1.25) : 0;
-    this.runPhase += dt * (4 + hs * 1.25);
-    let k = 1 - Math.exp(-dt * 16);
+    const sn = this.grounded ? clamp(hs / 7.5, 0, 1.3) : 0;
+    // stride-matched phase: feet advance with distance, so they don't skate
+    const stride = 0.9 + 0.55 * clamp((sn - 0.35) / 0.45, 0, 1);
+    const prevPhase = this.runPhase;
+    this.runPhase += sn > 0.02 ? ((hs * dt) / stride) * Math.PI : 0;
+    // turning bank and acceleration lean (smoothed)
+    const turn = angleDiff(A.prevHeading, this.heading) / Math.max(dt, 1e-4);
+    A.prevHeading = this.heading;
+    const accel = (hs - A.prevSpeed) / Math.max(dt, 1e-4);
+    A.prevSpeed = hs;
+    const kk = Math.min(1, dt * 8);
+    A.bank += (clamp(-turn * 0.035 * sn, -0.32, 0.32) - A.bank) * kk;
+    A.accLean += (clamp(accel * 0.012, -0.28, 0.25) - A.accLean) * kk;
+
+    let w = 20;
     let spinY = null;
     let flipX = null;
     let draw = 0;
     let showArrow = false;
     const wt = this.cls.weapon;
+    const busy = this.attack || this.action || this.dashTime > 0 || !this.grounded;
 
     if (this.dead) {
       this.deadT += dt;
       const d = easeOut(this.deadT / 0.6);
+      const fall = clamp((this.deadT - 0.3) / 0.5, 0, 1);
       P.thighL[0] = -1.4 * d;
       P.thighR[0] = -1.2 * d;
       P.shinL[0] = 1.6 * d;
       P.shinR[0] = 1.8 * d;
-      P.body[0] = -1.35 * clamp((this.deadT - 0.25) / 0.5, 0, 1);
-      P.bodyY = -0.55 * d - 0.15 * clamp((this.deadT - 0.25) / 0.5, 0, 1);
+      P.body[0] = -1.35 * fall;
+      P.bodyY = -0.55 * d - 0.15 * fall;
       P.armL[2] = 0.9 * d;
       P.armR[2] = -0.9 * d;
-      P.head[0] = -0.4 * d;
-      k = 1 - Math.exp(-dt * 10);
+      P.head[0] = -0.4 * d + 0.3 * fall;
+      P.chest[0] = 0.3 * d;
+      w = 12;
     } else {
-      // base: locomotion + idle + weapon stance
-      rig.locomotion(this.runPhase, run, wt === 'sword' ? 0.45 : 0.8);
-      rig.idle(t, 1 - Math.min(1, run));
-      this.stance(P, run);
+      // base layers: locomotion, breathing idle, weapon stance
+      rig.locomotion(this.runPhase, sn, wt === 'sword' ? 0.55 : 0.9);
+      const still = 1 - clamp(sn * 3, 0, 1);
+      rig.idle(t, still);
+      this.stance(P, sn);
+      P.body[0] += A.accLean * (busy ? 0.3 : 1);
+      P.body[2] += A.bank;
+      P.chest[2] += A.bank * 0.4;
+
+      // footstep dust + sound when a foot plants
+      if (sn > 0.25 && Math.floor(prevPhase / Math.PI) !== Math.floor(this.runPhase / Math.PI)) {
+        A.stepSide ^= 1;
+        const side = A.stepSide ? 1 : -1;
+        const fx = this.x + Math.cos(this.heading) * 0.12 * side;
+        const fz = this.z - Math.sin(this.heading) * 0.12 * side;
+        if (!this.demo) {
+          this.game.effects.puff(fx, this.y + 0.05, fz, 0x8a8478, 0.18 + 0.12 * sn, 0.35);
+          if (sn > 0.6) sfx.step();
+        }
+      }
+
+      // idle life: blinking, glancing around, class fidgets
+      if (!busy && sn < 0.05) A.idleT += dt;
+      else {
+        A.idleT = 0;
+        A.fidget = null;
+      }
+      if (A.idleT > A.nextFidget && !A.fidget) {
+        const opts = ['look', 'stretch', this.clsId];
+        A.fidget = { type: opts[Math.floor(Math.random() * opts.length)], t: 0, dur: 2.2 };
+        A.nextFidget = A.idleT + 5 + Math.random() * 5;
+      }
+      if (A.fidget) {
+        A.fidget.t += dt;
+        const f = A.fidget.t / A.fidget.dur;
+        if (f >= 1) A.fidget = null;
+        else this.fidgetPose(P, A.fidget.type, f, t);
+      }
+      // track the nearest threat with the head
+      const tgt = this.demo ? null : this.game.findTarget ? this.nearestThreat() : null;
+      let look = 0;
+      if (tgt) look = clamp(angleDiff(this.heading, Math.atan2(tgt.x - this.x, tgt.z - this.z)), -1.1, 1.1);
+      A.look += (look - A.look) * Math.min(1, dt * 5);
+      if (!this.attack && !this.action) {
+        P.head[1] += A.look * 0.6;
+        P.neck[1] += A.look * 0.3;
+        P.chest[1] += A.look * 0.15;
+      }
 
       const a = this.action;
       const at = this.attack;
-      if (!this.grounded && !(a && a.anim === 'leap') && this.dashTime <= 0) this.airPose(P);
+      if (!this.grounded && !(a && (a.anim === 'leap' || a.anim === 'flip')) && this.dashTime <= 0) this.airPose(P);
       if (this.landT > 0) {
         const l = this.landT / 0.16;
-        P.bodyY -= 0.16 * l;
-        P.thighL[0] -= 0.6 * l;
-        P.thighR[0] -= 0.6 * l;
-        P.shinL[0] += 1.1 * l;
-        P.shinR[0] += 1.1 * l;
-        P.body[0] += 0.2 * l;
+        P.bodyY -= 0.2 * l;
+        P.thighL[0] -= 0.7 * l;
+        P.thighR[0] -= 0.7 * l;
+        P.shinL[0] += 1.3 * l;
+        P.shinR[0] += 1.3 * l;
+        P.footL[0] -= 0.5 * l;
+        P.footR[0] -= 0.5 * l;
+        P.body[0] += 0.25 * l;
+        P.armL[2] += 0.3 * l;
+        P.armR[2] -= 0.3 * l;
       }
       if (this.dashTime > 0) {
-        P.body[0] = 0.55;
-        P.armL[0] = 0.9;
-        P.armR[0] = 0.9;
-        P.armL[2] = 0.3;
-        P.armR[2] = -0.3;
-        P.thighL[0] = -0.7;
-        P.shinL[0] = 1.0;
-        P.thighR[0] = 0.7;
-        P.shinR[0] = 0.5;
-        P.head[0] = -0.3;
-        k = 1 - Math.exp(-dt * 30);
+        P.body[0] = 0.6;
+        P.armL = [0.9, 0, 0.35];
+        P.armR = [0.9, 0, -0.35];
+        P.foreL[0] = -0.3;
+        P.foreR[0] = -0.3;
+        P.thighL[0] = -0.8;
+        P.shinL[0] = 1.2;
+        P.thighR[0] = 0.8;
+        P.shinR[0] = 0.6;
+        P.head[0] = -0.4;
+        P.bodyY = -0.12;
+        w = 32;
       }
       if (at) {
         const r = this.attackPose(P, at);
@@ -773,7 +844,7 @@ export class Player {
           draw = r.draw ?? 0;
           showArrow = r.arrow ?? false;
         }
-        k = 1 - Math.exp(-dt * 34);
+        w = 34;
       }
       if (a) {
         const r = this.actionPose(P, a);
@@ -785,42 +856,75 @@ export class Player {
             showArrow = r.arrow ?? true;
           }
         }
-        k = 1 - Math.exp(-dt * 28);
+        w = 30;
       }
       if (this.flipT > 0 && flipX === null) flipX = (1 - this.flipT / 0.4) * TAU;
       if (this.hurtFlash > 0) {
         const h = this.hurtFlash / 0.22;
-        P.chest[0] -= 0.35 * h;
-        P.head[0] -= 0.25 * h;
-        P.armL[2] += 0.3 * h;
-        P.armR[2] -= 0.3 * h;
+        P.chest[0] -= 0.4 * h;
+        P.head[0] -= 0.3 * h;
+        P.armL[2] += 0.35 * h;
+        P.armR[2] -= 0.35 * h;
+        P.body[0] -= 0.15 * h;
       }
     }
 
     rig.body.rotation.y = wrap(rig.body.rotation.y);
     rig.body.rotation.x = wrap(rig.body.rotation.x);
-    rig.apply(k);
-    if (spinY !== null) rig.body.rotation.y = spinY;
-    if (flipX !== null) rig.body.rotation.x = flipX;
+    rig.spring(dt, w, 0.62, LOOSE);
+    if (spinY !== null) {
+      rig.body.rotation.y = spinY;
+      rig.vel.body[1] = 0;
+    }
+    if (flipX !== null) {
+      rig.body.rotation.x = flipX;
+      rig.vel.body[0] = 0;
+    }
+
+    // blinking
+    A.blinkT -= dt;
+    if (A.blinkT < 0) A.blinkT = 2 + Math.random() * 3.5;
+    const blink = A.blinkT < 0.13 ? 1 - Math.abs(A.blinkT / 0.065 - 1) : 0;
+    const lidOpen = this.dead ? 1 : this.hurtFlash > 0 ? 0.8 : blink;
+    for (const s of [1, -1]) {
+      const lid = hero.face['lid' + s];
+      if (lid) {
+        lid.scale.y = 0.35 + 0.65 * lidOpen;
+        lid.rotation.x = -0.3 + 0.9 * lidOpen;
+      }
+    }
 
     // bow string follows the draw
-    const w = hero.weapon;
-    if (w && w.bow) w.bow.userData.setDraw(draw, showArrow);
+    const wpn = hero.weapon;
+    if (wpn && wpn.bow) wpn.bow.userData.setDraw(draw, showArrow);
 
-    // cape sway
+    // cape: two damped springs driven by speed, fall speed and turning
     if (hero.cape) {
       const [top, bot] = hero.cape;
-      const lift = Math.min(1.1, hs * 0.09) + (this.vy < 0 ? Math.min(0.6, -this.vy * 0.04) : 0);
-      top.rotation.x += (0.12 + lift + Math.sin(t * 3) * 0.03 - top.rotation.x) * Math.min(1, dt * 8);
-      bot.rotation.x += (lift * 0.5 + Math.sin(t * 4 + 1) * 0.08 - bot.rotation.x) * Math.min(1, dt * 6);
+      const lift = Math.min(1.15, hs * 0.1) + (this.vy < 0 ? Math.min(0.7, -this.vy * 0.05) : -Math.min(0.3, this.vy * 0.03));
+      const tgt0 = 0.1 + lift + Math.sin(t * 2.7) * 0.025 * (1 + sn);
+      const tgt1 = lift * 0.55 + Math.sin(t * 3.9 + 1) * 0.06 * (0.4 + sn);
+      const cw = 9;
+      const step = (i, tg) => {
+        const acc = cw * cw * (tg - A.capeA[i]) - 2 * 0.35 * cw * A.capeV[i];
+        A.capeV[i] += acc * dt;
+        A.capeA[i] += A.capeV[i] * dt;
+      };
+      step(0, tgt0);
+      step(1, tgt1);
+      top.rotation.x = clamp(A.capeA[0], -0.2, 1.5);
+      top.rotation.z = -A.bank * 0.8;
+      bot.rotation.x = clamp(A.capeA[1], -0.3, 1.2);
     }
     if (hero.orbit) {
       hero.orbit.position.set(Math.cos(t * 2) * 0.6, 1.5 + Math.sin(t * 3) * 0.12, Math.sin(t * 2) * 0.6);
       hero.orbit.rotation.y = t * 3;
     }
+    this.updateTrails(dt);
+
     // legendary weapons shed sparks
-    if (w && this.equipment.weapon && this.equipment.weapon.rarity.tier >= 4 && Math.random() < 0.25 && !this.demo) {
-      const tip = w.tips[Math.floor(Math.random() * w.tips.length)];
+    if (wpn && this.equipment.weapon && this.equipment.weapon.rarity.tier >= 4 && Math.random() < 0.25 && !this.demo) {
+      const tip = wpn.tips[Math.floor(Math.random() * wpn.tips.length)];
       tip.getWorldPosition(this._tmp || (this._tmp = new THREE.Vector3()));
       this.game.effects.puff(this._tmp.x, this._tmp.y, this._tmp.z, this.equipment.weapon.rarity.hex, 0.12, 0.35);
     }
@@ -840,52 +944,160 @@ export class Player {
     this.shadow.scale.set(ss, ss, ss);
   }
 
+  // Swing ribbons from each weapon tip back toward the hand.
+  updateTrails(dt) {
+    const hero = this.hero;
+    const w = hero.weapon;
+    if (!w || this.cls.weapon === 'bow' || !this.game.scene) return;
+    if (!this.trails) {
+      this.trails = w.tips.map(() => new Trail(this.game.scene, 0xffffff));
+      this._ta = new THREE.Vector3();
+      this._tb = new THREE.Vector3();
+    }
+    const a = this.action;
+    const swinging = !!(this.attack && !this.attack.c.ranged && this.attack.t > this.attack.dur * this.attack.c.hitAt * 0.5 && this.attack.t < this.attack.dur * 0.85) || !!(a && ['spin', 'flurry', 'lunge', 'leap', 'slamLand', 'overhead', 'stab'].includes(a.anim));
+    const rarity = this.equipment.weapon ? this.equipment.weapon.rarity : null;
+    const col = this.cls.weapon === 'staff' ? 0xb58cff : rarity && rarity.tier >= 1 ? rarity.hex : 0xdfe8ff;
+    w.tips.forEach((tip, i) => {
+      const tr = this.trails[i];
+      if (!tr) return;
+      tr.setColor(col);
+      tip.getWorldPosition(this._tb);
+      (i === 0 ? hero.rig.j.handR : hero.rig.j.handL).getWorldPosition(this._ta);
+      this._ta.lerp(this._tb, 0.25);
+      tr.update(dt, this._ta, this._tb, swinging && !this.demo);
+    });
+  }
+
+  disposeTrails() {
+    if (this.trails) this.trails.forEach((t) => t.dispose());
+    this.trails = null;
+  }
+
+  nearestThreat() {
+    let best = null;
+    let bd = 100;
+    for (const e of this.game.enemies) {
+      if (!e.alive || !e.aggro) continue;
+      const d = (e.x - this.x) ** 2 + (e.z - this.z) ** 2;
+      if (d < bd) {
+        bd = d;
+        best = e;
+      }
+    }
+    return best;
+  }
+
+  // Idle fidgets, f = 0..1 through the fidget.
+  fidgetPose(P, type, f, t) {
+    const env = Math.sin(Math.PI * f); // ease in and out of the fidget
+    if (type === 'look') {
+      const a = Math.sin(f * Math.PI * 2) * 0.8 * env;
+      P.head[1] += a;
+      P.neck[1] += a * 0.4;
+      P.chest[1] += a * 0.15;
+    } else if (type === 'stretch') {
+      P.chest[0] -= 0.25 * env;
+      P.head[0] -= 0.2 * env;
+      P.armL[2] += 0.5 * env;
+      P.armR[2] -= 0.5 * env;
+      P.armL[0] += 0.3 * env;
+      P.armR[0] += 0.3 * env;
+      P.chest[1] += Math.sin(f * Math.PI * 4) * 0.12 * env;
+    } else if (type === 'knight') {
+      // rest the sword on the shoulder
+      P.armR = [-2.3 * env - 0.35 * (1 - env), 0, -0.3 * env - 0.15 * (1 - env)];
+      P.foreR[0] = -1.9 * env - 1.0 * (1 - env);
+      P.handR[0] = -0.2 - 0.9 * env;
+      P.head[1] += -0.25 * env;
+      P.chest[1] += -0.1 * env;
+    } else if (type === 'ranger') {
+      // raise the bow and test the string
+      P.armL = [-1.3 * env - 0.2, 0.4 * env, 0.15];
+      P.foreL[0] = -0.4 * env - 0.5 * (1 - env);
+      P.armR = [-1.2 * env, -0.3 * env, -0.2];
+      P.foreR[0] = -1.4 * env + Math.sin(t * 18) * 0.15 * env;
+      P.head[0] += 0.15 * env;
+    } else if (type === 'mage') {
+      // tap the staff on the ground, then conjure a spark
+      const tap = f < 0.5 ? Math.max(0, Math.sin(f * Math.PI * 6)) : 0;
+      P.armR[0] += -0.35 * tap;
+      P.foreR[0] += 0.3 * tap;
+      if (f > 0.45) {
+        const g = Math.sin(((f - 0.45) / 0.55) * Math.PI);
+        P.armL = [-1.1 * g, 0, 0.25];
+        P.foreL[0] = -1.2 * g;
+        P.handL[0] = -1.2 * g;
+        P.head[0] += 0.25 * g;
+        P.head[1] += 0.3 * g;
+        if (Math.random() < 0.25 && !this.demo) {
+          const hx = this.x + Math.sin(this.heading + 0.6) * 0.45;
+          const hz = this.z + Math.cos(this.heading + 0.6) * 0.45;
+          this.game.effects.puff(hx, this.y + 1.2, hz, 0xb58cff, 0.1, 0.5);
+        }
+      }
+    } else if (type === 'rogue') {
+      // flip a dagger in the right hand
+      P.armR = [-0.9 * env, 0, -0.25];
+      P.foreR[0] = -1.5 * env - 0.6;
+      P.handR[0] = 0.6 + env * f * TAU * 2;
+      P.head[0] += 0.3 * env;
+      P.head[1] -= 0.3 * env;
+    }
+  }
+
   // Resting weapon hold, blended over the run cycle.
-  stance(P, run) {
+  stance(P, sn) {
     const wt = this.cls.weapon;
-    const k = 0.75;
+    const run = clamp((sn - 0.35) / 0.45, 0, 1);
+    const k = 0.75 - run * 0.25;
     const mix = (arr, v) => {
       arr[0] += (v[0] - arr[0]) * k;
       arr[1] += (v[1] - arr[1]) * k;
       arr[2] += (v[2] - arr[2]) * k;
     };
     if (wt === 'sword') {
-      mix(P.armR, [-0.35 + P.armR[0] * 0.3, 0, -0.15]);
-      mix(P.foreR, [-1.0, 0, 0]);
-      P.handR[0] = -0.2;
+      mix(P.armR, [-0.35 + P.armR[0] * 0.3, 0, -0.18]);
+      mix(P.foreR, [-1.0 - run * 0.3, 0, 0]);
+      P.handR[0] = -0.2 + run * 0.5;
       mix(P.armL, [-0.55, 0.2, 0.25]);
       mix(P.foreL, [-1.2, 0.3, 0]);
     } else if (wt === 'daggers') {
-      mix(P.armR, [-0.3 + P.armR[0] * 0.5, 0, -0.2]);
-      mix(P.armL, [-0.3 + P.armL[0] * 0.5, 0, 0.2]);
-      P.foreR[0] = -1.1;
-      P.foreL[0] = -1.1;
+      mix(P.armR, [-0.3 + P.armR[0] * 0.5, 0, -0.22]);
+      mix(P.armL, [-0.3 + P.armL[0] * 0.5, 0, 0.22]);
+      P.foreR[0] = Math.min(P.foreR[0], -1.1);
+      P.foreL[0] = Math.min(P.foreL[0], -1.1);
       P.handR[0] = 0.6;
       P.handL[0] = 0.6;
+      P.chest[0] += 0.08;
+      P.body[0] += 0.05;
     } else if (wt === 'bow') {
-      mix(P.armL, [-0.2 + P.armL[0] * 0.4, 0, 0.15]);
+      mix(P.armL, [-0.25 + P.armL[0] * 0.4, 0, 0.15]);
       P.foreL[0] = -0.5;
       P.handL[0] = -0.2;
-      P.handL[1] = 0;
     } else if (wt === 'staff') {
-      mix(P.armR, [-0.3, 0, -0.18]);
+      mix(P.armR, [-0.3 + P.armR[0] * 0.2, 0, -0.18]);
       P.foreR[0] = -1.3;
-      P.handR[0] = -0.25;
+      P.handR[0] = -0.25 + run * 0.4;
     }
-    P.head[1] = -P.chest[1] * 0.6;
-    void run;
   }
 
   airPose(P) {
     const up = this.vy > 0;
     const v = clamp(this.vy / 10, -1, 1);
-    P.thighL[0] = up ? -1.0 : -0.3;
-    P.shinL[0] = up ? 1.5 : 0.5;
-    P.thighR[0] = up ? 0.25 : 0.1;
-    P.shinR[0] = up ? 0.7 : 0.3;
-    P.armL[2] += 0.5 - v * 0.3;
-    P.armR[2] -= 0.5 - v * 0.3;
-    P.body[0] = up ? 0.15 : -0.05;
+    P.thighL[0] = up ? -1.1 : -0.35 - 0.2 * -v;
+    P.shinL[0] = up ? 1.6 : 0.4;
+    P.thighR[0] = up ? 0.3 : 0.15;
+    P.shinR[0] = up ? 0.8 : 0.35;
+    P.footL[0] = up ? 0.4 : -0.2;
+    P.footR[0] = 0.3;
+    P.armL[2] += 0.55 - v * 0.35;
+    P.armR[2] -= 0.55 - v * 0.35;
+    P.armL[0] -= up ? 0.4 : 0;
+    P.armR[0] -= up ? 0.2 : 0;
+    P.body[0] = up ? 0.12 : -0.08;
+    P.chest[0] += up ? -0.1 : 0.1;
+    P.head[0] += up ? -0.15 : 0.15;
   }
 
   attackPose(P, at) {
@@ -1188,7 +1400,7 @@ export class Player {
   showcase(dt) {
     this.demo = true;
     this.demoT = (this.demoT || 0) + dt;
-    if (!this.attack && this.demoT > 2.6) {
+    if (!this.attack && this.demoT > 7) {
       this.demoT = 0;
       this.startAttack({ wish: this.heading, camYaw: this.heading });
     }

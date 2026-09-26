@@ -50,21 +50,33 @@ export class Game {
     this.cam = { yaw: 0, pitch: 0.38, dist: 6.2, pos: new THREE.Vector3(), target: new THREE.Vector3() };
     this.effects = new Effects(this.scene, this.camera, document.getElementById('numbers'));
 
-    this.hemi = new THREE.HemisphereLight(0x9fb0d0, 0x302020, 1.5);
+    this.hemi = new THREE.HemisphereLight(0x9fb0d0, 0x302020, 1.1);
     this.scene.add(this.hemi);
-    this.sun = new THREE.DirectionalLight(0xfff0dd, 0.9);
-    this.sun.position.set(0.4, 1, 0.25);
+    // cool key light from above; casts the character/prop shadows on High
+    this.sun = new THREE.DirectionalLight(0xc8d4ff, 1.1);
+    this.sun.position.set(5, 14, 3);
+    this.sun.shadow.mapSize.set(2048, 2048);
+    const sc = this.sun.shadow.camera;
+    sc.left = sc.bottom = -15;
+    sc.right = sc.top = 15;
+    sc.near = 1;
+    sc.far = 40;
+    this.sun.shadow.bias = -0.0005;
+    this.sun.shadow.normalBias = 0.04;
     this.scene.add(this.sun);
-    this.playerLight = new THREE.PointLight(0xffc68a, 6, 16, 1.2);
+    this.scene.add(this.sun.target);
+    this.playerLight = new THREE.PointLight(0xffc68a, 5, 14, 1.2);
     this.scene.add(this.playerLight);
-    // a fixed pool of lights that hop to the wall torches nearest the player
+    // a fixed pool of lights that hop to the torches / braziers / crystals nearest the player
     this.torchPool = [];
-    for (let i = 0; i < 3; i++) {
-      const l = new THREE.PointLight(0xff9a4a, 0, 9, 1.4);
+    for (let i = 0; i < 4; i++) {
+      const l = new THREE.PointLight(0xff9a4a, 0, 11, 1.5);
       this.scene.add(l);
       this.torchPool.push(l);
     }
-
+    this.quality = 'high';
+    this.pointScale = 400;
+    this.runTime = 0;
     this.state = 'title';
     this.hitStopT = 0;
     this.tipsShown = {};
@@ -77,6 +89,22 @@ export class Game {
     this.zones = [];
     this.corpses = [];
     this.timers = [];
+  }
+
+  setQuality(q) {
+    this.quality = q;
+    this.sun.castShadow = q === 'high';
+    if (this.player) this.applyShadows(this.player.mesh);
+    for (const e of this.enemies) this.applyShadows(e.mesh);
+    if (this.dungeon) this.dungeon.group.traverse((o) => o.isMesh && (o.castShadow = q === 'high' && !!o.userData.caster));
+  }
+
+  applyShadows(obj) {
+    const on = this.quality === 'high';
+    obj.traverse((o) => {
+      if (o.isMesh && !o.material.transparent && !o.userData.noShadow) o.castShadow = on;
+    });
+    if (this.player && obj === this.player.mesh) this.player.shadow.visible = !on;
   }
 
   // ---------------------------------------------------------- title / select
@@ -101,8 +129,10 @@ export class Game {
     if (this.player) {
       this.scene.remove(this.player.mesh);
       this.scene.remove(this.player.shadow);
+      this.player.disposeTrails();
     }
     this.player = p;
+    this.applyShadows(p.mesh);
     this.scene.add(p.mesh);
     this.scene.add(p.shadow);
   }
@@ -138,6 +168,9 @@ export class Game {
       this.updateCamera(dt, { x: 0, y: 0 });
     }
     this.playerLight.position.set(p.x + Math.sin(this.showcaseHeading) * 2, p.y + 3, p.z + Math.cos(this.showcaseHeading) * 2);
+    this.runTime += dt;
+    this.cam.target.set(p.x, 1.5, p.z);
+    this.updateTorches();
     this.effects.update(dt);
   }
 
@@ -176,7 +209,7 @@ export class Game {
     this.floor = n;
     const dg = new Dungeon(n, (Math.random() * 2 ** 31) | 0);
     this.dungeon = dg;
-    this.scene.add(dg.buildMeshes());
+    this.scene.add(dg.buildMeshes(this.quality));
     const th = dg.theme;
     this.scene.background = new THREE.Color(th.fog);
     this.scene.fog = new THREE.Fog(th.fog, 16, 46);
@@ -220,6 +253,7 @@ export class Game {
     const e = new Enemy(this, type, x, z, this.floor, elite);
     e.aggro = aggro;
     this.enemies.push(e);
+    this.applyShadows(e.mesh);
     this.scene.add(e.mesh);
     e.render(0);
     if (ENEMY_TYPES[type].boss) {
@@ -876,14 +910,15 @@ export class Game {
   }
 
   updateTorches() {
-    const spots = this.dungeon.torchSpots || [];
+    const dg = this.dungeon;
+    const spots = dg.lightSpots || [];
     const p = this.player;
     const t = this.runTime;
     this.torchPick = (this.torchPick || 0) - 1;
     if (this.torchPick <= 0) {
-      this.torchPick = 15;
+      this.torchPick = 12;
       this.nearTorches = spots
-        .map((s) => ({ s, d: (s[0] - p.x) ** 2 + (s[1] - p.z) ** 2 }))
+        .map((s) => ({ s, d: (s.x - p.x) ** 2 + (s.z - p.z) ** 2 }))
         .sort((a, b) => a.d - b.d)
         .slice(0, this.torchPool.length)
         .map((o) => o.s);
@@ -894,9 +929,14 @@ export class Game {
         l.intensity = 0;
         return;
       }
-      l.position.set(s[0], 2.6, s[1]);
-      l.intensity = 5 * (0.85 + Math.sin(t * 9 + i * 3.1) * 0.08 + Math.sin(t * 23 + i) * 0.06);
+      l.position.set(s.x, s.y, s.z);
+      l.color.setHex(s.color);
+      l.intensity = 7 * (0.85 + Math.sin(t * 9 + i * 3.1) * 0.08 + Math.sin(t * 23 + i) * 0.06);
     });
+    // key light + shadow frustum follow the player
+    this.sun.position.set(p.x + 5, p.y + 14, p.z + 3);
+    this.sun.target.position.set(p.x, p.y, p.z);
+    dg.env.update(t, this.cam.target.lengthSq() ? this.cam.target : new THREE.Vector3(p.x, 1, p.z), this.pointScale);
   }
 
   updateCorpses(dt) {
@@ -1169,6 +1209,12 @@ export class Game {
     desired.sub(target).multiplyScalar(Math.max(0.12, frac * 0.92)).add(target);
     if (desired.y < 0.4) desired.y = 0.4;
     cam.pos.lerp(desired, Math.min(1, dt * 18));
+    // widen the view a touch when dashing or sprinting
+    const fovT = 62 + (p.dashTime > 0 ? 7 : 0) + Math.min(3, p.speed * 0.3);
+    if (Math.abs(this.camera.fov - fovT) > 0.05) {
+      this.camera.fov += (fovT - this.camera.fov) * Math.min(1, dt * (p.dashTime > 0 ? 14 : 4));
+      this.camera.updateProjectionMatrix();
+    }
     this.camera.position.copy(cam.pos);
     const sh = this.effects.shakeAmt;
     if (sh > 0) this.camera.position.add(new THREE.Vector3((Math.random() - 0.5) * sh * 0.5, (Math.random() - 0.5) * sh * 0.5, (Math.random() - 0.5) * sh * 0.5));
@@ -1300,10 +1346,12 @@ export class Game {
   resize(w, h) {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this.pointScale = (h * this.renderer.getPixelRatio()) / (2 * Math.tan((this.camera.fov * Math.PI) / 360));
   }
 
   render() {
-    this.renderer.render(this.scene, this.camera);
+    if (this.composer) this.composer.render();
+    else this.renderer.render(this.scene, this.camera);
   }
 
   worldToTile(x) {

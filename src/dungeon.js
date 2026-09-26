@@ -4,19 +4,10 @@
 import * as THREE from 'three';
 import { makeRng, clamp } from './utils.js';
 
-export const T = 2; // world units per tile
-export const WALL_H = 4;
-export const BLOCK_H = 1.2;
+import { T, WALL_H, BLOCK_H, TILE, HEIGHT, THEMES } from './tiles.js';
+import { buildEnvironment, PROP_WEIGHTS } from './decor.js';
 
-export const TILE = { WALL: 0, FLOOR: 1, BLOCK: 2, PILLAR: 3 };
-const HEIGHT = { 0: 100, 1: 0, 2: BLOCK_H, 3: 100 };
-
-export const THEMES = [
-  { name: 'Forgotten Crypt', floor: 0x3a3f4a, wall: 0x565d6e, block: 0x6b5238, fog: 0x0b0d14, accent: 0x7fb4ff },
-  { name: 'Mossy Depths', floor: 0x34402f, wall: 0x4d5a45, block: 0x5d4a2e, fog: 0x08110b, accent: 0x8dff9c },
-  { name: 'Ember Halls', floor: 0x45302b, wall: 0x6a3f33, block: 0x4a3a33, fog: 0x160806, accent: 0xff8a4d },
-  { name: 'Void Sanctum', floor: 0x2f2a42, wall: 0x4a3f68, block: 0x3c3453, fog: 0x0c0816, accent: 0xd08dff },
-];
+export { T, WALL_H, BLOCK_H, TILE, THEMES };
 
 export function themeForFloor(floor) {
   return THEMES[Math.floor((floor - 1) / 5) % THEMES.length];
@@ -28,71 +19,6 @@ export function enemyPoolForFloor(floor) {
   if (floor >= 3) pool.push({ type: 'brute', w: 2 + floor * 0.4 });
   if (floor >= 4) pool.push({ type: 'wisp', w: 3 + floor * 0.3 });
   return pool;
-}
-
-// Procedural grayscale stone textures (tinted per-instance by the theme colour).
-const texCache = {};
-function stoneTexture(kind) {
-  if (texCache[kind]) return texCache[kind];
-  const S = 128;
-  const c = document.createElement('canvas');
-  c.width = c.height = S;
-  const g = c.getContext('2d');
-  const r = makeRng(kind === 'wall' ? 7 : 11);
-  g.fillStyle = '#d0d0d0';
-  g.fillRect(0, 0, S, S);
-  // speckle noise
-  for (let i = 0; i < 1400; i++) {
-    const v = 150 + Math.floor(r.next() * 105);
-    g.fillStyle = `rgb(${v},${v},${v})`;
-    g.fillRect(r.next() * S, r.next() * S, 2, 2);
-  }
-  g.strokeStyle = 'rgba(40,40,40,0.9)';
-  g.lineWidth = 3;
-  if (kind === 'wall') {
-    // running-bond bricks
-    const rows = 4;
-    const h = S / rows;
-    for (let y = 0; y < rows; y++) {
-      g.beginPath();
-      g.moveTo(0, y * h);
-      g.lineTo(S, y * h);
-      g.stroke();
-      const off = y % 2 ? S / 4 : 0;
-      for (let x = off; x <= S; x += S / 2) {
-        g.beginPath();
-        g.moveTo(x, y * h);
-        g.lineTo(x, y * h + h);
-        g.stroke();
-      }
-    }
-  } else if (kind === 'floor') {
-    g.strokeRect(1, 1, S - 2, S - 2);
-    g.lineWidth = 1.5;
-    g.beginPath();
-    g.moveTo(S / 2, 0);
-    g.lineTo(S / 2, S);
-    g.moveTo(0, S / 2);
-    g.lineTo(S, S / 2);
-    g.stroke();
-  } else {
-    // wooden planks
-    g.lineWidth = 2;
-    for (let x = 0; x <= S; x += S / 4) {
-      g.beginPath();
-      g.moveTo(x, 0);
-      g.lineTo(x, S);
-      g.stroke();
-    }
-    g.lineWidth = 6;
-    g.strokeRect(3, 3, S - 6, S - 6);
-  }
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.anisotropy = 4;
-  texCache[kind] = tex;
-  return tex;
 }
 
 export class Dungeon {
@@ -180,7 +106,76 @@ export class Dungeon {
       if (room === this.startRoom) continue;
       this.decorateRoom(room);
     }
+    this.placeProps();
     this.placeContent();
+  }
+
+  // Furniture and statues against room walls. Each placement is kept only if
+  // every previously reachable floor tile stays reachable.
+  placeProps() {
+    this.props = [];
+    const r = this.rng;
+    const weights = PROP_WEIGHTS[this.theme.id];
+    const reach = () => {
+      const d = this.bfs(this.startRoom.cx, this.startRoom.cz);
+      let n = 0;
+      for (let i = 0; i < d.length; i++) if (d[i] >= 0) n++;
+      return n;
+    };
+    let reachable = reach();
+    for (const room of this.rooms) {
+      if (room === this.startRoom || room.boss) continue;
+      const want = Math.min(4, Math.round((room.w * room.h) / 28) + r.int(0, 1));
+      let placed = 0;
+      for (let tries = 0; tries < 30 && placed < want; tries++) {
+        // a tile on the room's border, away from the central cross (doorways)
+        const side = r.int(0, 3);
+        let x;
+        let z;
+        if (side < 2) {
+          x = r.int(room.x + 1, room.x + room.w - 2);
+          z = side === 0 ? room.z : room.z + room.h - 1;
+        } else {
+          z = r.int(room.z + 1, room.z + room.h - 2);
+          x = side === 2 ? room.x : room.x + room.w - 1;
+        }
+        if (Math.abs(x - room.cx) <= 1 || Math.abs(z - room.cz) <= 1) continue;
+        if (this.get(x, z) !== TILE.FLOOR) continue;
+        // face away from the adjacent wall
+        let ang = null;
+        for (const [dx, dz] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+          if (this.get(x + dx, z + dz) === TILE.WALL) {
+            ang = Math.atan2(-dx, -dz);
+            break;
+          }
+        }
+        if (ang === null) continue;
+        // keep a free tile between props so rooms stay readable
+        let crowded = false;
+        for (const p of this.props) if (Math.abs(p.tx - x) <= 1 && Math.abs(p.tz - z) <= 1) crowded = true;
+        if (crowded) continue;
+        this.set(x, z, TILE.PROP);
+        const now = reach();
+        if (now < reachable - 1) {
+          this.set(x, z, TILE.FLOOR);
+          continue;
+        }
+        reachable = now;
+        let total = 0;
+        for (const k in weights) total += weights[k];
+        let roll = r.next() * total;
+        let type = 'crates';
+        for (const k in weights) {
+          roll -= weights[k];
+          if (roll <= 0) {
+            type = k;
+            break;
+          }
+        }
+        this.props.push({ tx: x, tz: z, angle: ang, type });
+        placed++;
+      }
+    }
   }
 
   corridor(a, b) {
@@ -498,163 +493,21 @@ export class Dungeon {
   }
 
   // ------------------------------------------------------------------ rendering
-  buildMeshes() {
-    const group = new THREE.Group();
-    const th = this.theme;
-    const W = this.w;
-    const H = this.h;
-    const color = new THREE.Color();
-    const m4 = new THREE.Matrix4();
-    const r = makeRng(this.floor * 977 + 13);
-
-    const floorTiles = [];
-    const wallTiles = [];
-    const blockTiles = [];
-    const pillarTiles = [];
-    for (let z = 0; z < H; z++)
-      for (let x = 0; x < W; x++) {
-        const t = this.get(x, z);
-        if (t === TILE.WALL) {
-          let adj = false;
-          for (let dz = -1; dz <= 1 && !adj; dz++) for (let dx = -1; dx <= 1; dx++) if (this.get(x + dx, z + dz) !== TILE.WALL) adj = true;
-          if (adj) wallTiles.push([x, z]);
-        } else {
-          floorTiles.push([x, z]);
-          if (t === TILE.BLOCK) blockTiles.push([x, z]);
-          if (t === TILE.PILLAR) pillarTiles.push([x, z]);
-        }
-      }
-
-    const makeInst = (geo, mat, list, y, jitter, baseColor) => {
-      const mesh = new THREE.InstancedMesh(geo, mat, Math.max(1, list.length));
-      list.forEach(([x, z], i) => {
-        m4.makeTranslation((x + 0.5) * T, y, (z + 0.5) * T);
-        mesh.setMatrixAt(i, m4);
-        color.setHex(baseColor).offsetHSL(0, 0, (r.next() - 0.5) * jitter);
-        mesh.setColorAt(i, color);
-      });
-      mesh.count = list.length;
-      mesh.instanceMatrix.needsUpdate = true;
-      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-      mesh.frustumCulled = false;
-      group.add(mesh);
-      return mesh;
-    };
-
-    const floorGeo = new THREE.BoxGeometry(T * 0.98, 0.4, T * 0.98);
-    makeInst(floorGeo, new THREE.MeshLambertMaterial({ map: stoneTexture('floor') }), floorTiles, -0.2, 0.06, th.floor);
-
-    const wallGeo = new THREE.BoxGeometry(T, WALL_H, T);
-    // repeat the brick texture vertically along the wall height
-    const uv = wallGeo.attributes.uv;
-    for (let i = 0; i < uv.count; i++) uv.setY(i, uv.getY(i) * (WALL_H / T));
-    makeInst(wallGeo, new THREE.MeshLambertMaterial({ map: stoneTexture('wall') }), wallTiles, WALL_H / 2, 0.08, th.wall);
-
-    const blockGeo = new THREE.BoxGeometry(T * 0.98, BLOCK_H, T * 0.98);
-    makeInst(blockGeo, new THREE.MeshLambertMaterial({ map: stoneTexture('crate') }), blockTiles, BLOCK_H / 2, 0.1, th.block);
-    // plank trim on crates
-    const trimGeo = new THREE.BoxGeometry(T * 1.0, 0.12, T * 1.0);
-    makeInst(trimGeo, new THREE.MeshLambertMaterial(), blockTiles, BLOCK_H - 0.06, 0.05, 0x2a1f14);
-
-    const pillarGeo = new THREE.CylinderGeometry(T * 0.42, T * 0.5, WALL_H, 8);
-    makeInst(pillarGeo, new THREE.MeshLambertMaterial(), pillarTiles, WALL_H / 2, 0.08, th.wall);
-
-    // wall-top caps to give walls a readable silhouette
-    const capGeo = new THREE.BoxGeometry(T * 1.02, 0.15, T * 1.02);
-    makeInst(capGeo, new THREE.MeshLambertMaterial(), wallTiles, WALL_H + 0.07, 0.05, new THREE.Color(th.wall).offsetHSL(0, 0, 0.08).getHex());
-
-    // wall torches: iron sconce + bowl + layered flame, facing into the room
-    const torchSpots = [];
-    const torchDirs = [];
-    for (const [x, z] of wallTiles) {
-      if (r.next() > 0.07) continue;
-      for (const [dx, dz] of [
-        [1, 0],
-        [-1, 0],
-        [0, 1],
-        [0, -1],
-      ]) {
-        if (this.get(x + dx, z + dz) === TILE.FLOOR) {
-          torchSpots.push([(x + 0.5 + dx * 0.62) * T, (z + 0.5 + dz * 0.62) * T]);
-          torchDirs.push(Math.atan2(dx, dz));
-          break;
-        }
-      }
-    }
-    if (torchSpots.length) {
-      const q = new THREE.Quaternion();
-      const e = new THREE.Euler();
-      const sc = new THREE.Vector3(1, 1, 1);
-      const pos = new THREE.Vector3();
-      const addTorchPart = (geo, material, ox, oy, oz) => {
-        const inst = new THREE.InstancedMesh(geo, material, torchSpots.length);
-        torchSpots.forEach(([x, z], i) => {
-          const h = torchDirs[i];
-          e.set(0, h, 0);
-          q.setFromEuler(e);
-          pos.set(ox, oy, oz).applyQuaternion(q).add(new THREE.Vector3(x, 0, z));
-          m4.compose(pos, q, sc);
-          inst.setMatrixAt(i, m4);
-        });
-        inst.frustumCulled = false;
-        group.add(inst);
-      };
-      const iron = new THREE.MeshLambertMaterial({ color: 0x2e2e34 });
-      addTorchPart(new THREE.BoxGeometry(0.12, 0.5, 0.12), iron, 0, 2.2, -0.3);
-      addTorchPart(new THREE.BoxGeometry(0.08, 0.08, 0.4), iron, 0, 2.0, -0.12);
-      addTorchPart(new THREE.CylinderGeometry(0.16, 0.08, 0.18, 8), iron, 0, 2.3, 0.05);
-      addTorchPart(new THREE.ConeGeometry(0.15, 0.5, 7), new THREE.MeshBasicMaterial({ color: 0xff7a2e, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }), 0, 2.62, 0.05);
-      addTorchPart(new THREE.ConeGeometry(0.08, 0.3, 6), new THREE.MeshBasicMaterial({ color: 0xffe08a }), 0, 2.55, 0.05);
-      addTorchPart(new THREE.OctahedronGeometry(0.06), new THREE.MeshBasicMaterial({ color: th.accent }), 0, 2.12, 0.05);
-    }
-    this.torchSpots = torchSpots;
-
-    // floor clutter: rubble and bones scattered around rooms
-    const rubble = [];
-    const bones = [];
-    for (const [x, z] of floorTiles) {
-      if (this.get(x, z) !== TILE.FLOOR) continue;
-      const v = r.next();
-      if (v < 0.05) rubble.push([x, z]);
-      else if (v < 0.075) bones.push([x, z]);
-    }
-    const scatter = (geo, material, list, y, sMin, sMax, lay = 0) => {
-      const inst = new THREE.InstancedMesh(geo, material, Math.max(1, list.length));
-      const q = new THREE.Quaternion();
-      const e = new THREE.Euler();
-      const sc = new THREE.Vector3();
-      const pos = new THREE.Vector3();
-      list.forEach(([x, z], i) => {
-        e.set(lay + r.next() * 0.6, r.next() * 6.28, r.next() * 0.6);
-        q.setFromEuler(e);
-        const k = sMin + r.next() * (sMax - sMin);
-        sc.set(k, k * (0.6 + r.next() * 0.4), k);
-        pos.set((x + 0.2 + r.next() * 0.6) * T, y, (z + 0.2 + r.next() * 0.6) * T);
-        m4.compose(pos, q, sc);
-        inst.setMatrixAt(i, m4);
-      });
-      inst.count = list.length;
-      inst.frustumCulled = false;
-      group.add(inst);
-    };
-    scatter(new THREE.DodecahedronGeometry(0.22, 0), new THREE.MeshLambertMaterial({ color: new THREE.Color(th.wall).offsetHSL(0, 0, -0.05) }), rubble, 0.05, 0.6, 1.4);
-    scatter(new THREE.CapsuleGeometry(0.04, 0.4, 2, 5), new THREE.MeshLambertMaterial({ color: 0xd8d0b8 }), bones, 0.05, 0.8, 1.2, Math.PI / 2);
-
-    // big dark ground plane under everything (hides the void when looking over walls)
-    const under = new THREE.Mesh(new THREE.PlaneGeometry(W * T * 3, H * T * 3), new THREE.MeshBasicMaterial({ color: th.fog }));
-    under.rotation.x = -Math.PI / 2;
-    under.position.set((W * T) / 2, -0.5, (H * T) / 2);
-    group.add(under);
-
-    this.group = group;
-    return group;
+  buildMeshes(quality = 'high') {
+    const env = buildEnvironment(this, quality);
+    this.env = env;
+    this.torchSpots = env.torchSpots;
+    this.lightSpots = env.lightSpots;
+    this.group = env.group;
+    return env.group;
   }
 
   dispose() {
     if (!this.group) return;
     this.group.traverse((o) => {
-      if (o.geometry) o.geometry.dispose();
-      if (o.material) o.material.dispose();
+      if (o.geometry && (o.userData.ownGeo || !o.geometry.userData.shared)) o.geometry.dispose();
+      if (o.userData.ownMat && o.material) o.material.dispose();
     });
+    this.env.dispose();
   }
 }

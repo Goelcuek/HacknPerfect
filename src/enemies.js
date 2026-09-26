@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { clamp, angleDiff, rng } from './utils.js';
 import { sfx } from './audio.js';
-import { Rig, G, mat, part, buildHumanBody } from './rig.js';
+import { Rig, G, mat, part, buildHumanBody, mergeStatic } from './rig.js';
 import { buildWeapon } from './gear.js';
 
 export const ENEMY_TYPES = {
@@ -15,6 +15,7 @@ export const ENEMY_TYPES = {
   boss: { name: 'Dungeon Warden', hp: 1000, dmg: 22, speed: 3.6, radius: 1.5, height: 3.8, range: 3.8, windup: 0.8, recover: 0.9, color: 0x5a2a6a, gold: [120, 180], heavy: true, boss: true },
 };
 
+const LOOSE = { foreL: 0.8, foreR: 0.8, handL: 0.7, handR: 0.7, head: 0.7, neck: 0.85 };
 const ease = (t) => (t < 0 ? 0 : t > 1 ? 1 : t * t * (3 - 2 * t));
 
 // shared (never-flashing) materials
@@ -124,7 +125,7 @@ export class Enemy {
 
     if (this.type === 'grunt') {
       const rig = new Rig({ scale: 0.74, hipH: 0.8, thigh: 0.36, shin: 0.36, upper: 0.3, fore: 0.28, abdomen: 0.18, chestH: 0.3, shoulderW: 0.25 });
-      const p = buildHumanBody(rig, { skin: B, cloth: S.leather, cloth2: S.fur, boots: B }, { headR: 0.21, torsoW: 0.38, torsoD: 0.27, limbR: 0.07, legR: 0.078, belly: 1.0 });
+      const p = buildHumanBody(rig, { skin: B, cloth: S.leather, cloth2: S.fur, boots: B }, { headR: 0.21, torsoW: 0.38, torsoD: 0.27, limbR: 0.07, legR: 0.078, belly: 1.0, ears: false, boots: false });
       const h = rig.j.head;
       for (const s of [1, -1]) {
         part(h, G.cone(0.075, 0.34, 5), B, [s * 0.24, 0.24, -0.02], [0, 0, -s * 1.25]);
@@ -150,10 +151,10 @@ export class Enemy {
       void p;
     } else if (this.type === 'archer') {
       const rig = new Rig({ scale: 0.98, hipH: 0.93 });
-      const p = buildHumanBody(rig, { skin: B, cloth: B, cloth2: B, boots: B }, { headR: 0.14, torsoW: 0.3, torsoD: 0.2, limbR: 0.034, legR: 0.04, neck: true });
+      const p = buildHumanBody(rig, { skin: B, cloth: B, cloth2: B, boots: B }, { headR: 0.14, torsoW: 0.3, torsoD: 0.2, limbR: 0.034, legR: 0.04, neck: true, ears: false, trap: false, boots: false });
       p.chest.visible = false;
       p.abdomen.visible = false;
-      p.pelvis.scale.set(0.12, 0.08, 0.08);
+      p.pelvis.scale.set(0.5, 0.45, 0.5);
       const ch = rig.o.chestH;
       part(rig.j.spine, G.cyl(0.03, 0.03, rig.o.abdomen + 0.1, 6), B, [0, rig.o.abdomen / 2, -0.04]);
       for (let i = 0; i < 4; i++) part(rig.j.chest, G.torus(0.14 - i * 0.012, 0.018, Math.PI * 1.5, 4, 12), B, [0, ch * 0.3 + i * 0.075, 0], [Math.PI / 2, 0, Math.PI * 1.25], [1, 0.75, 1]);
@@ -183,7 +184,7 @@ export class Enemy {
       this.rig = rig;
     } else if (this.type === 'brute') {
       const rig = new Rig({ scale: 1.35, hipH: 0.78, thigh: 0.36, shin: 0.36, upper: 0.4, fore: 0.38, abdomen: 0.26, chestH: 0.42, shoulderW: 0.42, hipW: 0.17 });
-      buildHumanBody(rig, { skin: B, cloth: B, cloth2: S.fur, boots: B }, { headR: 0.16, torsoW: 0.62, torsoD: 0.44, limbR: 0.12, legR: 0.14, belly: 1.25 });
+      buildHumanBody(rig, { skin: B, cloth: B, cloth2: S.fur, boots: B }, { headR: 0.16, torsoW: 0.62, torsoD: 0.44, limbR: 0.12, legR: 0.14, belly: 1.25, boots: false });
       rig.j.neck.position.set(0, rig.o.chestH * 0.86, 0.1);
       const h = rig.j.head;
       for (const s of [1, -1]) {
@@ -210,7 +211,7 @@ export class Enemy {
       this.rig = rig;
     } else if (this.type === 'wisp') {
       this.bodyMat.emissive = new THREE.Color(d.color);
-      this.bodyMat.emissiveIntensity = 0.7;
+      this.bodyMat.emissiveIntensity = 0.35;
       this.baseEmissive = this.elite ? 0xffaa33 : d.color;
       const g = new THREE.Group();
       g.position.y = 0;
@@ -218,8 +219,10 @@ export class Enemy {
       const shellMat = new THREE.MeshBasicMaterial({ color: d.color, wireframe: true, transparent: true, opacity: 0.45 });
       this.ownMats.push(shellMat);
       this.shell = part(g, G.ico(0.52, 0), shellMat);
+      this.shell.userData.keep = true;
       this.shards = [];
       for (let i = 0; i < 4; i++) this.shards.push(part(g, G.octa(0.08), B, [0, 0, 0], null, [1, 1.8, 1]));
+      for (const sh of this.shards) sh.userData.keep = true;
       for (const s of [1, -1]) part(g, G.sphere(0.05, 6, 5), S.yellowEye, [s * 0.1, 0.05, 0.27]);
       this.wispBody = g;
       root.add(g);
@@ -267,6 +270,7 @@ export class Enemy {
 
     if (this.rig) {
       this.rig.scaler.scale.multiplyScalar(this.scale);
+      mergeStatic(this.rig.root);
       root.add(this.rig.root);
     } else if (this.wispBody) this.wispBody.scale.setScalar(this.scale);
 
@@ -285,6 +289,7 @@ export class Enemy {
       const bar = new THREE.Group();
       const bg = new THREE.Mesh(G.plane(1, 0.12), S.hbBg);
       const fill = new THREE.Mesh(fillGeo, this.elite ? S.hbGold : S.hbRed);
+      fill.userData.noShadow = true;
       fill.position.set(-0.5, 0, 0.001);
       bar.add(bg, fill);
       bg.renderOrder = 10;
@@ -518,7 +523,7 @@ export class Enemy {
       }
       sfx.arrow();
     } else if (this.type === 'brute') {
-      const s = this.slamAt;
+      const s = this.slamAt || { x: this.x + Math.sin(this.heading) * 1.6 * this.scale, z: this.z + Math.cos(this.heading) * 1.6 * this.scale, r: 3.2 * this.scale };
       game.shockwave(s.x, s.z, s.r, dmg, this);
     }
   }
@@ -667,17 +672,31 @@ export class Enemy {
     const rig = this.rig;
     const P = rig.pose;
     rig.resetPose();
-    const amp = clamp(this.speedNow / 4, 0, 1.3);
-    this.phase += dt * (3 + this.speedNow * 1.5);
     const heavy = this.type === 'brute' || this.type === 'boss';
-    rig.locomotion(this.phase, amp, heavy ? 0.6 : 1);
-    rig.idle(t, 1 - Math.min(1, amp));
-    let k = 1 - Math.exp(-dt * 14);
+    const legLen = (rig.o.thigh + rig.o.shin) * rig.o.scale * this.scale;
+    const sn = clamp(this.speedNow / (legLen * 5), 0, 1.3);
+    // stride-matched phase so feet plant instead of skating
+    this.phase += ((this.speedNow * dt) / (legLen * (1.05 + 0.6 * clamp((sn - 0.35) / 0.45, 0, 1)))) * Math.PI;
+    rig.locomotion(this.phase, sn, heavy ? 0.6 : 1);
+    const still = 1 - clamp(sn * 3, 0, 1);
+    rig.idle(t + this.phase, still);
+    let k = 16;
+    // unaware enemies fidget; aware ones track the player with their head
+    if (!this.aggro && still > 0.5) this.idleFidget(P, t);
+    else if (this.aggro) {
+      const p = this.game.player;
+      const look = clamp(angleDiff(this.heading, Math.atan2(p.x - this.x, p.z - this.z)), -1, 1);
+      P.head[1] += look * 0.6;
+      P.neck[1] += look * 0.25;
+      P.head[0] -= 0.08;
+    }
+    // heavy breathing between swings
+    if (this.state === 'recover') P.chest[0] += Math.sin(t * 7) * 0.05;
     const s = this.state;
     const wind = s === 'windup' ? ease(this.stateT / this.def.windup) : s === 'bosswind' ? ease(this.stateT / this.bossWind) : 0;
     const act = s === 'attack' || s === 'bossact';
     const rec = s === 'recover' ? clamp(1 - this.stateT / 0.35, 0, 1) : 0;
-    if (s === 'windup' || act || s === 'bosswind') k = 1 - Math.exp(-dt * 26);
+    if (s === 'windup' || act || s === 'bosswind') k = 28;
 
     if (this.type === 'grunt') {
       P.armR = [-0.5 + P.armR[0] * 0.4, 0, -0.2];
@@ -816,7 +835,36 @@ export class Enemy {
       P.thighL[0] = -0.6;
       P.shinL[0] = 0.8;
     }
-    rig.apply(k);
+    rig.spring(dt, heavy ? k * 0.8 : k, 0.6, LOOSE);
+  }
+
+  // Per-species idle business while the enemy hasn't noticed the player.
+  idleFidget(P, t) {
+    const cyc = (t + this.phase * 0.3) % 9;
+    const f = cyc < 2.4 ? Math.sin((cyc / 2.4) * Math.PI) : 0;
+    const g = (cyc > 4.5 && cyc < 7) ? Math.sin(((cyc - 4.5) / 2.5) * Math.PI) : 0;
+    P.head[1] += Math.sin(t * 0.7 + this.phase) * 0.5 * g;
+    if (this.type === 'grunt') {
+      // scratch head, then sniff around
+      P.armL = [-2.6 * f, 0, 0.4 * f + 0.1];
+      P.foreL[0] = -1.6 * f;
+      P.head[2] += 0.2 * f;
+      P.head[0] += Math.sin(t * 12) * 0.05 * g;
+    } else if (this.type === 'archer') {
+      // rattle: jaw chatter and head tilts
+      P.head[2] += Math.sin(t * 3) * 0.25 * f;
+      P.chest[1] += Math.sin(t * 2) * 0.15 * f;
+    } else if (this.type === 'brute') {
+      // beat chest, then scratch belly
+      P.armL = [-1.3 * f, 0.6 * f, 0.2];
+      P.foreL[0] = -1.4 * f + Math.sin(t * 14) * 0.25 * f;
+      P.head[0] -= 0.25 * f;
+      P.armR[0] -= 0.5 * g;
+      P.foreR[0] -= 1.0 * g;
+    } else if (this.type === 'boss') {
+      P.chest[0] -= 0.12 * f;
+      P.head[0] -= 0.2 * f;
+    }
   }
 
   animateWisp(dt) {
@@ -901,6 +949,9 @@ export class Enemy {
   }
 
   dispose() {
+    this.mesh.traverse((o) => {
+      if (o.userData.ownGeo && o.geometry) o.geometry.dispose();
+    });
     for (const m of this.ownMats) m.dispose();
     if (this.bowGear) this.bowGear.dispose();
   }

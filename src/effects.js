@@ -402,3 +402,71 @@ export class Effects {
     this.pmesh.count = 0;
   }
 }
+
+// Ribbon that follows a weapon between its hilt and tip while swinging.
+export class Trail {
+  constructor(scene, color = 0xffffff, segs = 14) {
+    this.segs = segs;
+    this.pts = []; // [{a: Vector3, b: Vector3}]
+    const n = segs * 2;
+    this.pos = new Float32Array(n * 3);
+    this.alpha = new Float32Array(n);
+    const idx = [];
+    for (let i = 0; i < segs - 1; i++) {
+      const a = i * 2;
+      idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
+    g.setAttribute('alpha', new THREE.BufferAttribute(this.alpha, 1));
+    g.setIndex(idx);
+    this.mat = new THREE.ShaderMaterial({
+      uniforms: { uColor: { value: new THREE.Color(color) } },
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      vertexShader: 'attribute float alpha; varying float vA; void main(){ vA = alpha; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+      fragmentShader: 'uniform vec3 uColor; varying float vA; void main(){ gl_FragColor = vec4(uColor * vA, 1.0); }',
+    });
+    this.mesh = new THREE.Mesh(g, this.mat);
+    this.mesh.frustumCulled = false;
+    this.mesh.visible = false;
+    scene.add(this.mesh);
+    this.fade = 0;
+  }
+
+  setColor(hex) {
+    this.mat.uniforms.uColor.value.setHex(hex);
+  }
+
+  // a/b: hilt and tip world positions; active: currently swinging
+  update(dt, a, b, active) {
+    this.fade = active ? Math.min(1, this.fade + dt * 12) : Math.max(0, this.fade - dt * 5);
+    if (this.fade <= 0) {
+      this.mesh.visible = false;
+      this.pts.length = 0;
+      return;
+    }
+    this.pts.unshift({ a: a.clone(), b: b.clone() });
+    if (this.pts.length > this.segs) this.pts.length = this.segs;
+    const n = this.pts.length;
+    for (let i = 0; i < this.segs; i++) {
+      const p = this.pts[Math.min(i, n - 1)];
+      this.pos.set([p.a.x, p.a.y, p.a.z], i * 6);
+      this.pos.set([p.b.x, p.b.y, p.b.z], i * 6 + 3);
+      const k = i < n ? (1 - i / this.segs) ** 1.5 * this.fade * 0.7 : 0;
+      this.alpha[i * 2] = k * 0.15;
+      this.alpha[i * 2 + 1] = k;
+    }
+    this.mesh.geometry.attributes.position.needsUpdate = true;
+    this.mesh.geometry.attributes.alpha.needsUpdate = true;
+    this.mesh.visible = n > 1;
+  }
+
+  dispose() {
+    this.mesh.parent && this.mesh.parent.remove(this.mesh);
+    this.mesh.geometry.dispose();
+    this.mat.dispose();
+  }
+}
