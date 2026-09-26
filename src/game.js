@@ -1210,7 +1210,11 @@ export class Game {
     const cp = Math.cos(cam.pitch);
     const desired = new THREE.Vector3(target.x - Math.sin(cam.yaw) * cam.dist * cp, target.y + Math.sin(cam.pitch) * cam.dist + 0.4, target.z - Math.cos(cam.yaw) * cam.dist * cp);
     const frac = this.dungeon ? this.dungeon.raycastFraction(target, desired) : 1;
-    desired.sub(target).multiplyScalar(Math.max(0.12, frac * 0.92)).add(target);
+    // pull in quickly when something blocks the view, drift back out gently
+    const want = Math.max(0.12, frac * 0.92);
+    if (cam.frac === undefined) cam.frac = want;
+    cam.frac += (want - cam.frac) * Math.min(1, dt * (want < cam.frac ? 22 : 2.5));
+    desired.sub(target).multiplyScalar(cam.frac).add(target);
     if (desired.y < 0.4) desired.y = 0.4;
     cam.pos.lerp(desired, Math.min(1, dt * 18));
     // widen the view a touch when dashing or sprinting

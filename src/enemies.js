@@ -354,7 +354,13 @@ export class Enemy {
     const dz = p.z - this.z;
     const dist = Math.hypot(dx, dz);
     const toPlayer = Math.atan2(dx, dz);
-    this.mesh.visible = dist < 44;
+    // draw and animate only enemies the player could plausibly see
+    this.losT = (this.losT ?? Math.random() * 0.3) - dt;
+    if (this.losT <= 0 || this.seen === undefined) {
+      this.losT = 0.25;
+      this.seen = dist < 10 || (dist < 34 && dg.lineOfSight(this.x, this.z, p.x, p.z, 3.5, true));
+    }
+    this.mesh.visible = this.seen || this.def.boss;
     this.speedNow = 0;
 
     if (this.freeze > 0) {
@@ -648,6 +654,7 @@ export class Enemy {
     const m = this.mesh;
     m.position.set(this.x, this.y, this.z);
     m.rotation.y = this.heading;
+    if (!m.visible && dt > 0) return; // off-screen: skip pose work entirely
     const t = this.animT;
 
     // tint: hit flash > freeze > burn/poison > base

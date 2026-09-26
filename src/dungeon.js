@@ -381,17 +381,23 @@ export class Dungeon {
   }
 
   // Walls (not low blocks) stop sight lines and projectiles.
-  lineOfSight(ax, az, bx, bz, maxH = 1.5) {
+  lineOfSight(ax, az, bx, bz, maxH = 1.5, ignoreProps = false) {
     const d = Math.hypot(bx - ax, bz - az);
     const n = Math.ceil(d / 0.5);
     for (let i = 1; i < n; i++) {
       const t = i / n;
-      if (this.heightAtPoint(ax + (bx - ax) * t, az + (bz - az) * t) > maxH) return false;
+      if ((ignoreProps ? this.cameraHeightAt : this.heightAtPoint).call(this, ax + (bx - ax) * t, az + (bz - az) * t) > maxH) return false;
     }
     return true;
   }
 
   // March from `from` to `to` (Vector3) and return how far (0..1) is free of geometry.
+  // Height the camera must clear: furniture is only ~2.6m tall, not a full wall.
+  cameraHeightAt(x, z) {
+    const t = this.get(Math.floor(x / T), Math.floor(z / T));
+    return t === TILE.PROP ? 2.6 : HEIGHT[t];
+  }
+
   raycastFraction(from, to) {
     const d = from.distanceTo(to);
     const n = Math.ceil(d / 0.15);
@@ -400,7 +406,7 @@ export class Dungeon {
       const x = from.x + (to.x - from.x) * t;
       const y = from.y + (to.y - from.y) * t;
       const z = from.z + (to.z - from.z) * t;
-      if (this.heightAtPoint(x, z) > y - 0.3) return Math.max(0, (i - 1) / n);
+      if (this.cameraHeightAt(x, z) > y - 0.3) return Math.max(0, (i - 1) / n);
     }
     return 1;
   }
