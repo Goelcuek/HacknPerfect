@@ -1,10 +1,10 @@
-# Publishes the game to GitHub Pages on every push to main.
+# Publishes the game to GitHub Pages on every push to main (or the dev branch).
 # Enable once in the repo: Settings → Pages → Source: "GitHub Actions".
 name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main]
+    branches: [main, claude/web-hack-slash-roguelike-qa40ug]
   workflow_dispatch:
 
 permissions:
