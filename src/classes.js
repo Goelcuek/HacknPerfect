@@ -1,0 +1,76 @@
+// Playable classes: base stats, look, basic attack style and skill pool.
+
+export const CLASSES = {
+  knight: {
+    id: 'knight',
+    name: 'Knight',
+    icon: '🛡️',
+    role: 'Tank · Melee',
+    desc: 'Sword and shield. Hits hard up close and shrugs off blows.',
+    stats: { maxHp: 135, damage: 11, armor: 8, crit: 0.05 },
+    mods: {},
+    weapon: 'sword',
+    attack: 'sword',
+    palette: { skin: 0xe2b48c, hair: 0x5a3820, cloth: 0x2f4f8f, cloth2: 0x3a3f4f, leather: 0x5a3a22, metal: 0xa9b3c2, trim: 0xe8c14a, eye: 0x2a1a10 },
+    skills: ['slam', 'whirl', 'charge', 'warcry', 'aegis', 'fissure'],
+    ratings: { power: 3, defense: 5, speed: 2, range: 1 },
+  },
+  ranger: {
+    id: 'ranger',
+    name: 'Ranger',
+    icon: '🏹',
+    role: 'Ranged · Mobile',
+    desc: 'Bow and traps. Strikes from afar and never stands still.',
+    stats: { maxHp: 95, damage: 10, crit: 0.12, critMult: 0.8, moveSpeed: 0.08 },
+    mods: {},
+    weapon: 'bow',
+    attack: 'bow',
+    palette: { skin: 0xd9a57c, hair: 0x9a5a2a, cloth: 0x3d5a32, cloth2: 0x4a3a2a, leather: 0x6a4526, metal: 0x9aa39a, trim: 0xc9a86a, eye: 0x1f3a1a },
+    skills: ['multishot', 'rain', 'pierce', 'vault', 'trap', 'focus'],
+    ratings: { power: 3, defense: 2, speed: 4, range: 5 },
+  },
+  mage: {
+    id: 'mage',
+    name: 'Mage',
+    icon: '🔮',
+    role: 'Caster · Area damage',
+    desc: 'Staff and spells. Fragile, but skills hit harder and recharge faster.',
+    stats: { maxHp: 85, damage: 9, skillPower: 0.3, cdr: 0.1 },
+    mods: {},
+    weapon: 'staff',
+    attack: 'staff',
+    palette: { skin: 0xe8c0a0, hair: 0xd8d8e0, cloth: 0x4a2f7a, cloth2: 0x2e2446, leather: 0x3a2a4a, metal: 0xb0a8c8, trim: 0xe8c14a, eye: 0x3a2a6a },
+    skills: ['firebolt', 'nova', 'chain', 'meteor', 'blink', 'orb'],
+    ratings: { power: 5, defense: 1, speed: 3, range: 4 },
+  },
+  rogue: {
+    id: 'rogue',
+    name: 'Rogue',
+    icon: '🗡️',
+    role: 'Assassin · Fast',
+    desc: 'Twin daggers. Blinding speed, deadly crits and two dash charges.',
+    stats: { maxHp: 100, damage: 8, attackSpeed: 0.3, crit: 0.15, critMult: 0.5, moveSpeed: 0.1 },
+    mods: { dashCharges: 2 },
+    weapon: 'daggers',
+    attack: 'daggers',
+    palette: { skin: 0xc8946c, hair: 0x1e1a22, cloth: 0x2a2a34, cloth2: 0x1f1f26, leather: 0x3a2a24, metal: 0x9aa0aa, trim: 0xb03a3a, eye: 0x1a1a1a },
+    skills: ['shadowstep', 'fan', 'poison', 'flurry', 'smoke', 'assassinate'],
+    ratings: { power: 4, defense: 2, speed: 5, range: 1 },
+  },
+};
+
+export const CLASS_ORDER = ['knight', 'ranger', 'mage', 'rogue'];
+
+export const WEAPON_NAMES = {
+  sword: ['Sword', 'Longsword', 'Blade', 'Broadsword', 'Falchion'],
+  bow: ['Bow', 'Longbow', 'Recurve', 'Warbow', 'Shortbow'],
+  staff: ['Staff', 'Rod', 'Scepter', 'Stave', 'Wand'],
+  daggers: ['Daggers', 'Kris Pair', 'Shivs', 'Twin Blades', 'Stilettos'],
+};
+
+export const ARMOR_NAMES = {
+  knight: ['Plate', 'Cuirass', 'Hauberk', 'Warplate'],
+  ranger: ['Leathers', 'Hunter Garb', 'Brigandine', 'Scout Mail'],
+  mage: ['Robes', 'Vestments', 'Mantle', 'Regalia'],
+  rogue: ['Garb', 'Shadowweave', 'Jerkin', 'Nightcloak'],
+};

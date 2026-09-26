@@ -20,54 +20,51 @@ input.onModeChange = (on) => ui.setTouch(on);
 const game = new Game(renderer, ui, input);
 window.__game = game; // handy for debugging from the console
 
-function play() {
+let chosenClass = 'knight';
+
+function toTitle() {
+  game.state = 'title';
+  game.setupBackdrop(chosenClass);
+  ui.showTitle(loadBest());
+}
+
+function toClassSelect() {
   initAudio();
-  ui.hide('death');
-  if (game.player) game.quitToTitle();
-  game.startRun();
+  game.state = 'classSelect';
+  game.setupBackdrop(chosenClass);
+  ui.showClassSelect(
+    chosenClass,
+    (id) => {
+      chosenClass = id;
+      game.setupBackdrop(id);
+    },
+    startRun,
+    toTitle,
+  );
+}
+
+function startRun() {
+  initAudio();
   ui.showHUD();
+  game.startRun(chosenClass);
+  ui.refreshSkills(game.player);
   input.reset();
 }
 
 ui.bindMenus({
-  play,
-  title: () => {
-    game.quitToTitle();
-    ui.showTitle(loadBest());
-  },
+  play: toClassSelect,
+  again: toClassSelect,
+  title: toTitle,
   resume: () => game.resume(),
   quit: () => {
     ui.hidePause();
-    game.quitToTitle();
-    ui.showTitle(loadBest());
+    toTitle();
   },
   equip: () => game.equipNearItem(),
   salvage: () => game.salvageNearItem(),
   pause: () => game.pause(),
 });
-ui.showTitle(loadBest());
-
-// idle title backdrop: a slowly orbiting camera over a floor-1 dungeon
-function titleBackdrop(dt) {
-  if (!game.backdrop) {
-    game.startRun();
-    game.state = 'title';
-    game.backdrop = true;
-  }
-  game.cam.yaw += dt * 0.15;
-  game.updateCamera(dt, { x: 0, y: 0 });
-  for (const e of game.enemies) e.render(dt, 0);
-  game.effects.update(dt);
-}
-
-const origStart = game.startRun.bind(game);
-game.startRun = () => {
-  if (game.backdrop) {
-    game.backdrop = false;
-    game.quitToTitle();
-  }
-  origStart();
-};
+toTitle();
 
 window.addEventListener('resize', () => {
   const w = window.innerWidth;
@@ -89,8 +86,8 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
-  if (game.state === 'title') {
-    titleBackdrop(dt);
+  if (game.state === 'title' || game.state === 'classSelect') {
+    game.updateBackdrop(dt, game.state);
   } else {
     game.update(dt);
     if (game.state === 'play') ui.update(dt, game, input);

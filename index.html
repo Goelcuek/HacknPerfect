@@ -19,8 +19,8 @@
 
     <div id="hud" class="hidden">
       <div id="stats">
-        <div class="bar hp"><div id="hpFill"></div><span id="hpText">100 / 100</span></div>
-        <div id="dashPips"></div>
+        <div class="bar hp"><div id="hpFill"></div><div id="shieldFill"></div><span id="hpText">100 / 100</span></div>
+        <div class="subrow"><div id="dashPips"></div><div id="buffs"></div></div>
         <div class="row">
           <span id="floorText">Floor 1</span>
           <span id="goldText">💰 0</span>
@@ -80,20 +80,38 @@
         </div>
       </div>
 
-      <div id="upgrade" class="screen ui-block hidden">
-        <h2 id="upTitle">Floor cleared</h2>
-        <p class="subtitle">Choose a blessing</p>
-        <div id="upChoices"></div>
-        <div class="shop">
-          <span id="upGold"></span>
-          <button id="healBtn" class="secondary"></button>
-          <button id="rerollBtn" class="secondary"></button>
+      <div id="classSelect" class="screen ui-block hidden">
+        <div class="cs-panel">
+          <h2>Choose your hero</h2>
+          <div id="classList"></div>
+          <p id="classDesc"></p>
+          <div class="row-buttons">
+            <button id="startRunBtn" class="primary">Enter the dungeon</button>
+            <button id="classBackBtn" class="secondary">Back</button>
+          </div>
         </div>
+      </div>
+
+      <div id="skillPick" class="screen ui-block hidden">
+        <h2 id="spTitle">Choose your first skill</h2>
+        <p id="spSub" class="subtitle"></p>
+        <div id="spChoices"></div>
+        <div id="spLoadout" class="loadout"></div>
+        <div id="spShrine" class="shrine">
+          <div class="shrine-head"><b>Shrine</b> <span id="spGold"></span></div>
+          <div id="spBlessings"></div>
+          <div class="row-buttons">
+            <button id="healBtn" class="secondary"></button>
+            <button id="rerollBtn" class="secondary"></button>
+          </div>
+        </div>
+        <button id="spContinue" class="primary hidden">Continue</button>
       </div>
 
       <div id="pause" class="screen ui-block hidden">
         <h2>Paused</h2>
         <div id="gear"></div>
+        <div id="pauseSkills" class="loadout"></div>
         <div id="statList"></div>
         <div class="row-buttons">
           <button id="resumeBtn" class="primary">Resume</button>
@@ -105,7 +123,7 @@
       <div id="death" class="screen ui-block hidden">
         <h2 class="red">You have fallen</h2>
         <div id="deathStats"></div>
-        <button id="againBtn" class="primary">Try again</button>
+        <button id="againBtn" class="primary">Play again</button>
         <button id="titleBtn" class="secondary">Title</button>
       </div>
     </div>

@@ -1,13 +1,14 @@
-// Loot (equipment with random affixes) and roguelike upgrade definitions.
+// Loot (equipment with random affixes) and the stat blessings sold between floors.
 
 import { rng, weightedPick } from './utils.js';
+import { CLASSES, WEAPON_NAMES, ARMOR_NAMES } from './classes.js';
 
 export const RARITIES = [
-  { id: 'common', name: 'Common', color: '#d8d8d8', hex: 0xd8d8d8, mult: 1.0, affixes: 0, w: 55 },
-  { id: 'magic', name: 'Magic', color: '#5aa9ff', hex: 0x5aa9ff, mult: 1.2, affixes: 1, w: 28 },
-  { id: 'rare', name: 'Rare', color: '#ffd84a', hex: 0xffd84a, mult: 1.45, affixes: 2, w: 12 },
-  { id: 'epic', name: 'Epic', color: '#c77dff', hex: 0xc77dff, mult: 1.75, affixes: 3, w: 4 },
-  { id: 'legendary', name: 'Legendary', color: '#ff8c2e', hex: 0xff8c2e, mult: 2.1, affixes: 4, w: 1 },
+  { id: 'common', tier: 0, name: 'Common', color: '#d8d8d8', hex: 0xd8d8d8, mult: 1.0, affixes: 0, w: 55 },
+  { id: 'magic', tier: 1, name: 'Magic', color: '#5aa9ff', hex: 0x5aa9ff, mult: 1.2, affixes: 1, w: 28 },
+  { id: 'rare', tier: 2, name: 'Rare', color: '#ffd84a', hex: 0xffd84a, mult: 1.45, affixes: 2, w: 12 },
+  { id: 'epic', tier: 3, name: 'Epic', color: '#c77dff', hex: 0xc77dff, mult: 1.75, affixes: 3, w: 4 },
+  { id: 'legendary', tier: 4, name: 'Legendary', color: '#ff8c2e', hex: 0xff8c2e, mult: 2.1, affixes: 4, w: 1 },
 ];
 
 export const STAT_LABELS = {
@@ -55,11 +56,7 @@ const AFFIXES = [
   { stat: 'armor', roll: (f) => 2 + f * 0.8 + rng.next() * 3 },
 ];
 
-const NAMES = {
-  weapon: ['Sword', 'Blade', 'Cleaver', 'Saber', 'Falchion', 'Longsword', 'Edge'],
-  armor: ['Plate', 'Mail', 'Cuirass', 'Hauberk', 'Vest', 'Brigandine'],
-  charm: ['Amulet', 'Talisman', 'Ring', 'Sigil', 'Charm', 'Relic'],
-};
+const CHARM_NAMES = ['Amulet', 'Talisman', 'Ring', 'Sigil', 'Charm', 'Relic'];
 const PREFIX = {
   common: ['Worn', 'Plain', 'Iron', 'Simple'],
   magic: ['Tempered', 'Glinting', 'Runed', 'Honed'],
@@ -78,7 +75,8 @@ export function rollRarity(floor, bonus = 0, minRarity = 0) {
   return weightedPick(rng, entries).r;
 }
 
-export function generateItem(floor, rarityBonus = 0, minRarity = 0, slot = null) {
+// clsId decides the weapon type and naming so drops always suit the hero.
+export function generateItem(floor, clsId, rarityBonus = 0, minRarity = 0, slot = null) {
   const rarity = rollRarity(floor, rarityBonus, minRarity);
   slot = slot || rng.pick(SLOTS);
   const stats = {};
@@ -93,8 +91,12 @@ export function generateItem(floor, rarityBonus = 0, minRarity = 0, slot = null)
     const a = pool.splice(Math.floor(rng.next() * pool.length), 1)[0];
     stats[a.stat] = (stats[a.stat] || 0) + a.roll(floor) * (0.8 + rarity.mult * 0.2);
   }
-  const name = `${rng.pick(PREFIX[rarity.id])} ${rng.pick(NAMES[slot])}`;
-  return { slot, rarity, name, stats, level: floor };
+  const cls = CLASSES[clsId] || CLASSES.knight;
+  const base = slot === 'weapon' ? rng.pick(WEAPON_NAMES[cls.weapon]) : slot === 'armor' ? rng.pick(ARMOR_NAMES[cls.id]) : rng.pick(CHARM_NAMES);
+  const name = `${rng.pick(PREFIX[rarity.id])} ${base}`;
+  const item = { slot, rarity, name, stats, level: floor, visual: { variant: rng.int(0, 2), hue: rng.next() } };
+  if (slot === 'weapon') item.wtype = cls.weapon;
+  return item;
 }
 
 export function itemScore(item) {
@@ -119,9 +121,9 @@ export function formatStats(item, compare) {
   return lines;
 }
 
-// ------------------------------------------------------------------ upgrades
-// Each upgrade mutates player.stats / player.mods. `max` limits stacking.
-export const UPGRADES = [
+// ----------------------------------------------------------------- blessings
+// Stat boosts bought at the shrine between floors. `max` limits stacking.
+export const BLESSINGS = [
   { id: 'dmg', icon: '🗡️', name: 'Sharpened Edge', desc: '+15% damage', w: 10, max: 10, apply: (p) => (p.stats.dmgPct += 0.15) },
   { id: 'hp', icon: '❤️', name: 'Vitality', desc: '+25 max health and heal 25', w: 10, max: 10, apply: (p) => { p.stats.maxHp += 25; p.hp += 25; } },
   { id: 'as', icon: '⚡', name: 'Frenzy', desc: '+12% attack speed', w: 8, max: 6, apply: (p) => (p.stats.attackSpeed += 0.12) },
@@ -134,23 +136,18 @@ export const UPGRADES = [
   { id: 'armor', icon: '🪨', name: 'Iron Skin', desc: '+8 armor', w: 7, max: 8, apply: (p) => (p.stats.armor += 8) },
   { id: 'dash', icon: '💨', name: 'Blink Reserve', desc: '+1 dash charge', w: 4, max: 2, apply: (p) => (p.mods.dashCharges += 1) },
   { id: 'jump', icon: '🪽', name: 'Featherweight', desc: '+1 air jump (triple jump!)', w: 3, max: 1, apply: (p) => (p.mods.airJumps += 1) },
-  { id: 'split', icon: '🔥', name: 'Split Bolt', desc: 'Fire Bolt launches 2 extra bolts', w: 4, max: 2, apply: (p) => (p.mods.boltExtra += 2) },
-  { id: 'cyclone', icon: '🌪️', name: 'Cyclone', desc: 'Whirlwind lasts 50% longer and pulls enemies in', w: 4, max: 2, apply: (p) => { p.mods.whirlDur += 0.5; p.mods.whirlPull = true; } },
-  { id: 'freeze', icon: '❄️', name: 'Deep Freeze', desc: 'Frost Nova: +1.5s freeze, +25% radius', w: 4, max: 3, apply: (p) => { p.mods.novaFreeze += 1.5; p.mods.novaRadius += 0.25; } },
-  { id: 'quake', icon: '🌋', name: 'Earthshaker', desc: 'Leap Slam: +35% radius and damage', w: 4, max: 3, apply: (p) => (p.mods.slamPower += 0.35) },
   { id: 'firedash', icon: '☄️', name: 'Blazing Dash', desc: 'Dashing leaves a burning trail', w: 3, max: 1, apply: (p) => (p.mods.fireDash = true) },
   { id: 'stomp', icon: '🦶', name: 'Stomp', desc: 'Air jumps release a damaging shockwave', w: 3, max: 1, apply: (p) => (p.mods.stomp = true) },
   { id: 'thorns', icon: '🌵', name: 'Thorns', desc: 'Reflect 40% of melee damage taken', w: 4, max: 3, apply: (p) => (p.mods.thorns += 0.4) },
   { id: 'regen', icon: '🌿', name: 'Regeneration', desc: 'Regenerate 1% max health per second', w: 4, max: 3, apply: (p) => (p.mods.regen += 0.01) },
   { id: 'exec', icon: '💀', name: 'Executioner', desc: '+60% damage to enemies under 30% health', w: 4, max: 2, apply: (p) => (p.mods.execute += 0.6) },
   { id: 'greed', icon: '💰', name: 'Greed', desc: '+40% gold found', w: 5, max: 5, apply: (p) => (p.stats.goldFind += 0.4) },
-  { id: 'reach', icon: '📏', name: 'Long Reach', desc: '+20% attack range', w: 5, max: 3, apply: (p) => (p.mods.reach += 0.2) },
+  { id: 'reach', icon: '📏', name: 'Long Reach', desc: '+20% melee range', w: 5, max: 3, apply: (p) => (p.mods.reach += 0.2) },
 ];
 
-export function rollUpgrades(player, n = 3) {
-  const avail = UPGRADES.filter((u) => (player.upgradeCounts[u.id] || 0) < u.max);
+export function rollBlessings(player, n = 2) {
+  const pool = BLESSINGS.filter((u) => (player.upgradeCounts[u.id] || 0) < u.max);
   const out = [];
-  const pool = avail.slice();
   while (out.length < n && pool.length) {
     const u = weightedPick(rng, pool);
     out.push(u);

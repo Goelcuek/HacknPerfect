@@ -563,10 +563,11 @@ export class Dungeon {
     const capGeo = new THREE.BoxGeometry(T * 1.02, 0.15, T * 1.02);
     makeInst(capGeo, new THREE.MeshLambertMaterial(), wallTiles, WALL_H + 0.07, 0.05, new THREE.Color(th.wall).offsetHSL(0, 0, 0.08).getHex());
 
-    // glowing torch crystals on some walls facing rooms
+    // wall torches: iron sconce + bowl + layered flame, facing into the room
     const torchSpots = [];
+    const torchDirs = [];
     for (const [x, z] of wallTiles) {
-      if (r.next() > 0.06) continue;
+      if (r.next() > 0.07) continue;
       for (const [dx, dz] of [
         [1, 0],
         [-1, 0],
@@ -574,23 +575,70 @@ export class Dungeon {
         [0, -1],
       ]) {
         if (this.get(x + dx, z + dz) === TILE.FLOOR) {
-          torchSpots.push([(x + 0.5 + dx * 0.55) * T, (z + 0.5 + dz * 0.55) * T]);
+          torchSpots.push([(x + 0.5 + dx * 0.62) * T, (z + 0.5 + dz * 0.62) * T]);
+          torchDirs.push(Math.atan2(dx, dz));
           break;
         }
       }
     }
     if (torchSpots.length) {
-      const tg = new THREE.OctahedronGeometry(0.22);
-      const tm = new THREE.MeshBasicMaterial({ color: th.accent });
-      const inst = new THREE.InstancedMesh(tg, tm, torchSpots.length);
-      torchSpots.forEach(([x, z], i) => {
-        m4.makeTranslation(x, 2.4, z);
-        inst.setMatrixAt(i, m4);
-      });
-      inst.frustumCulled = false;
-      group.add(inst);
+      const q = new THREE.Quaternion();
+      const e = new THREE.Euler();
+      const sc = new THREE.Vector3(1, 1, 1);
+      const pos = new THREE.Vector3();
+      const addTorchPart = (geo, material, ox, oy, oz) => {
+        const inst = new THREE.InstancedMesh(geo, material, torchSpots.length);
+        torchSpots.forEach(([x, z], i) => {
+          const h = torchDirs[i];
+          e.set(0, h, 0);
+          q.setFromEuler(e);
+          pos.set(ox, oy, oz).applyQuaternion(q).add(new THREE.Vector3(x, 0, z));
+          m4.compose(pos, q, sc);
+          inst.setMatrixAt(i, m4);
+        });
+        inst.frustumCulled = false;
+        group.add(inst);
+      };
+      const iron = new THREE.MeshLambertMaterial({ color: 0x2e2e34 });
+      addTorchPart(new THREE.BoxGeometry(0.12, 0.5, 0.12), iron, 0, 2.2, -0.3);
+      addTorchPart(new THREE.BoxGeometry(0.08, 0.08, 0.4), iron, 0, 2.0, -0.12);
+      addTorchPart(new THREE.CylinderGeometry(0.16, 0.08, 0.18, 8), iron, 0, 2.3, 0.05);
+      addTorchPart(new THREE.ConeGeometry(0.15, 0.5, 7), new THREE.MeshBasicMaterial({ color: 0xff7a2e, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }), 0, 2.62, 0.05);
+      addTorchPart(new THREE.ConeGeometry(0.08, 0.3, 6), new THREE.MeshBasicMaterial({ color: 0xffe08a }), 0, 2.55, 0.05);
+      addTorchPart(new THREE.OctahedronGeometry(0.06), new THREE.MeshBasicMaterial({ color: th.accent }), 0, 2.12, 0.05);
     }
     this.torchSpots = torchSpots;
+
+    // floor clutter: rubble and bones scattered around rooms
+    const rubble = [];
+    const bones = [];
+    for (const [x, z] of floorTiles) {
+      if (this.get(x, z) !== TILE.FLOOR) continue;
+      const v = r.next();
+      if (v < 0.05) rubble.push([x, z]);
+      else if (v < 0.075) bones.push([x, z]);
+    }
+    const scatter = (geo, material, list, y, sMin, sMax, lay = 0) => {
+      const inst = new THREE.InstancedMesh(geo, material, Math.max(1, list.length));
+      const q = new THREE.Quaternion();
+      const e = new THREE.Euler();
+      const sc = new THREE.Vector3();
+      const pos = new THREE.Vector3();
+      list.forEach(([x, z], i) => {
+        e.set(lay + r.next() * 0.6, r.next() * 6.28, r.next() * 0.6);
+        q.setFromEuler(e);
+        const k = sMin + r.next() * (sMax - sMin);
+        sc.set(k, k * (0.6 + r.next() * 0.4), k);
+        pos.set((x + 0.2 + r.next() * 0.6) * T, y, (z + 0.2 + r.next() * 0.6) * T);
+        m4.compose(pos, q, sc);
+        inst.setMatrixAt(i, m4);
+      });
+      inst.count = list.length;
+      inst.frustumCulled = false;
+      group.add(inst);
+    };
+    scatter(new THREE.DodecahedronGeometry(0.22, 0), new THREE.MeshLambertMaterial({ color: new THREE.Color(th.wall).offsetHSL(0, 0, -0.05) }), rubble, 0.05, 0.6, 1.4);
+    scatter(new THREE.CapsuleGeometry(0.04, 0.4, 2, 5), new THREE.MeshLambertMaterial({ color: 0xd8d0b8 }), bones, 0.05, 0.8, 1.2, Math.PI / 2);
 
     // big dark ground plane under everything (hides the void when looking over walls)
     const under = new THREE.Mesh(new THREE.PlaneGeometry(W * T * 3, H * T * 3), new THREE.MeshBasicMaterial({ color: th.fog }));

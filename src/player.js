@@ -1,17 +1,14 @@
-// The player knight: movement (run / jump / double jump / dash), 3-hit combo,
-// four directional skills, stats derived from equipment + upgrades.
+// The player: class-based stats and basic attack, movement (run / jump /
+// double jump / dash), up to four owned skills, buffs and shields, and a
+// pose-driven animation layer on top of the hero rig.
 
 import * as THREE from 'three';
 import { clamp, angleDiff } from './utils.js';
 import { sfx } from './audio.js';
 import { SLOTS } from './items.js';
-
-export const SKILLS = [
-  { id: 'slam', name: 'Leap Slam', icon: '🔨', cd: 6, color: '#ffb347', desc: 'Leap at a foe and crush the ground' },
-  { id: 'bolt', name: 'Fire Bolt', icon: '🔥', cd: 2.5, color: '#ff6a3d', desc: 'Hurl an exploding fireball' },
-  { id: 'whirl', name: 'Whirlwind', icon: '🌀', cd: 8, color: '#9be7ff', desc: 'Spin, striking everything around you' },
-  { id: 'nova', name: 'Frost Nova', icon: '❄', cd: 10, color: '#8fd3ff', desc: 'Freeze nearby enemies in place' },
-];
+import { CLASSES } from './classes.js';
+import { SKILLS, MAX_SKILL_LEVEL } from './skills.js';
+import { buildHero, dressHero } from './hero.js';
 
 const GRAVITY = 28;
 const JUMP_V = 10;
@@ -19,13 +16,34 @@ const AIR_JUMP_V = 9;
 const DASH_TIME = 0.17;
 const DASH_SPEED = 24;
 const DASH_RECHARGE = 0.9;
-const COMBO = [
-  { dur: 0.32, hitAt: 0.35, mult: 1.0, arc: 2.3, range: 2.4, knock: 4, swing: 1 },
-  { dur: 0.32, hitAt: 0.35, mult: 1.1, arc: 2.3, range: 2.4, knock: 4, swing: -1 },
-  { dur: 0.5, hitAt: 0.45, mult: 1.8, arc: 6.3, range: 2.9, knock: 10, swing: 2 },
-];
+const TAU = Math.PI * 2;
 
-function baseStats() {
+// Basic attack chains per weapon. `hitAt` is the fraction of the swing where damage lands.
+const ATTACKS = {
+  sword: [
+    { dur: 0.34, hitAt: 0.42, mult: 1.0, arc: 2.4, range: 2.5, knock: 4, anim: 'slashR' },
+    { dur: 0.34, hitAt: 0.42, mult: 1.1, arc: 2.4, range: 2.5, knock: 4, anim: 'slashL' },
+    { dur: 0.52, hitAt: 0.5, mult: 1.8, arc: 6.3, range: 3.0, knock: 10, anim: 'spinSlash' },
+  ],
+  daggers: [
+    { dur: 0.22, hitAt: 0.45, mult: 0.8, arc: 1.9, range: 2.2, knock: 2, anim: 'stabR' },
+    { dur: 0.22, hitAt: 0.45, mult: 0.8, arc: 1.9, range: 2.2, knock: 2, anim: 'stabL' },
+    { dur: 0.22, hitAt: 0.45, mult: 0.9, arc: 1.9, range: 2.2, knock: 2, anim: 'stabR' },
+    { dur: 0.38, hitAt: 0.5, mult: 1.6, arc: 2.8, range: 2.5, knock: 7, anim: 'crossSlash' },
+  ],
+  bow: [
+    { dur: 0.42, hitAt: 0.62, mult: 1.0, ranged: 'arrow', anim: 'bowShot' },
+    { dur: 0.42, hitAt: 0.62, mult: 1.0, ranged: 'arrow', anim: 'bowShot' },
+    { dur: 0.5, hitAt: 0.68, mult: 1.6, ranged: 'power', anim: 'bowShot' },
+  ],
+  staff: [
+    { dur: 0.36, hitAt: 0.45, mult: 0.95, ranged: 'missile', anim: 'staffR' },
+    { dur: 0.36, hitAt: 0.45, mult: 0.95, ranged: 'missile', anim: 'staffL' },
+    { dur: 0.5, hitAt: 0.5, mult: 0.8, ranged: 'missile3', anim: 'staffBurst' },
+  ],
+};
+
+function baseStats(cls) {
   return {
     maxHp: 100,
     damage: 10,
@@ -39,38 +57,50 @@ function baseStats() {
     cdr: 0,
     skillPower: 0,
     goldFind: 0,
+    ...cls.stats,
   };
 }
 
+const ease = (t) => (t < 0 ? 0 : t > 1 ? 1 : t * t * (3 - 2 * t));
+const easeOut = (t) => 1 - (1 - clamp(t, 0, 1)) ** 3;
+const wrap = (a) => {
+  a %= TAU;
+  if (a > Math.PI) a -= TAU;
+  if (a < -Math.PI) a += TAU;
+  return a;
+};
+
 export class Player {
-  constructor(game) {
+  constructor(game, clsId = 'knight') {
     this.game = game;
+    this.clsId = clsId;
+    this.cls = CLASSES[clsId];
     this.radius = 0.45;
-    this.stats = baseStats();
+    this.stats = baseStats(this.cls);
     this.mods = {
       dashCharges: 1,
       airJumps: 1,
-      boltExtra: 0,
-      whirlDur: 1,
-      whirlPull: false,
-      novaFreeze: 2,
-      novaRadius: 1,
-      slamPower: 1,
       fireDash: false,
       stomp: false,
       thorns: 0,
       regen: 0,
       execute: 0,
       reach: 1,
+      ...this.cls.mods,
     };
+    this.chain = ATTACKS[this.cls.attack];
     this.upgradeCounts = {};
+    this.skills = [null, null, null, null]; // { id, level } per swipe direction
     this.equipment = { weapon: null, armor: null, charm: null };
+    this.hero = buildHero(clsId);
+    this.mesh = this.hero.mesh;
+    this.buildShadowAndShield();
     this.recompute();
     this.hp = this.final.maxHp;
     this.gold = 0;
     this.kills = 0;
-    this.buildMesh();
     this.resetState();
+    this.dress();
   }
 
   resetState() {
@@ -88,18 +118,49 @@ export class Player {
     this.dashDir = { x: 0, z: 1 };
     this.dashCharges = this.mods.dashCharges;
     this.dashRecharge = 0;
-    this.attack = null; // { i, t, dur, hit }
+    this.attack = null;
     this.comboIndex = 0;
     this.comboTimer = 0;
     this.attackBuffered = false;
     this.cooldowns = [0, 0, 0, 0];
-    this.skill = null; // { id, t, ... }
+    this.action = null;
     this.skillBuffer = null;
+    this.buffs = {};
+    this.buff = { dmg: 0, as: 0, crit: 0, armor: 0, ms: 0, pierce: 0 };
+    this.shield = 0;
+    this.shieldT = 0;
+    this.shieldEnd = null;
     this.invuln = 0;
     this.hurtFlash = 0;
     this.dead = false;
+    this.deadT = 0;
     this.animT = 0;
+    this.runPhase = 0;
+    this.landT = 0;
+    this.flipT = 0;
     this.fireTrailT = 0;
+    this.nextCrit = false;
+    this.demo = false;
+    this.speed = 0;
+  }
+
+  buildShadowAndShield() {
+    this.shadow = new THREE.Mesh(
+      new THREE.CircleGeometry(0.5, 20),
+      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.4, depthWrite: false }),
+    );
+    this.shadow.rotation.x = -Math.PI / 2;
+    this.shieldMesh = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(1.05, 2),
+      new THREE.MeshBasicMaterial({ color: 0xfff0a0, transparent: true, opacity: 0.18, depthWrite: false, blending: THREE.AdditiveBlending }),
+    );
+    this.shieldMesh.position.y = 1;
+    this.shieldMesh.visible = false;
+    this.mesh.add(this.shieldMesh);
+  }
+
+  dress() {
+    dressHero(this.hero, this.equipment);
   }
 
   // ----------------------------------------------------------------- stats
@@ -115,7 +176,6 @@ export class Player {
       maxHp: Math.round(s.maxHp),
       damage: s.damage * (1 + s.dmgPct),
       armor: s.armor,
-      dmgTaken: 50 / (50 + Math.max(0, s.armor)),
       atkSpeed: 1 + s.attackSpeed,
       crit: Math.min(0.9, s.crit),
       critMult: 1 + s.critMult,
@@ -125,18 +185,23 @@ export class Player {
       skillMult: 1 + s.skillPower,
       goldMult: 1 + s.goldFind,
     };
+    this.updateArmor();
     if (prevMax !== null && this.hp !== undefined) {
-      // keep the same missing-health when max hp changes
       if (this.final.maxHp > prevMax) this.hp += this.final.maxHp - prevMax;
       this.hp = Math.min(this.hp, this.final.maxHp);
     }
-    if (this.swordMat) this.updateWeaponLook();
+  }
+
+  updateArmor() {
+    const a = this.final.armor + (this.buff ? this.buff.armor : 0);
+    this.final.dmgTaken = 50 / (50 + Math.max(0, a));
   }
 
   equip(item) {
     const old = this.equipment[item.slot];
     this.equipment[item.slot] = item;
     this.recompute();
+    this.dress();
     return old;
   }
 
@@ -148,114 +213,148 @@ export class Player {
     this.airJumpsLeft = this.mods.airJumps;
   }
 
-  rollDamage(mult, isSkill = false) {
+  // ---------------------------------------------------------------- skills
+  skillLevel(id) {
+    const s = this.skills.find((k) => k && k.id === id);
+    return s ? s.level : 0;
+  }
+
+  learnSkill(id) {
+    const cur = this.skills.find((k) => k && k.id === id);
+    if (cur) {
+      cur.level = Math.min(MAX_SKILL_LEVEL, cur.level + 1);
+      return this.skills.indexOf(cur);
+    }
+    const slot = this.skills.indexOf(null);
+    if (slot < 0) return -1;
+    this.skills[slot] = { id, level: 1 };
+    this.cooldowns[slot] = 0;
+    return slot;
+  }
+
+  skillCooldown(slot) {
+    const s = this.skills[slot];
+    return s ? SKILLS[s.id].cd(s.level) * (1 - this.final.cdr) : 1;
+  }
+
+  // ----------------------------------------------------------------- buffs
+  addBuff(id, dur, mods, color = 0xffffff) {
+    this.buffs[id] = { t: dur, mods, color };
+    this.refreshBuffs();
+  }
+
+  refreshBuffs() {
+    const b = { dmg: 0, as: 0, crit: 0, armor: 0, ms: 0, pierce: 0 };
+    for (const id in this.buffs) for (const k in this.buffs[id].mods) b[k] += this.buffs[id].mods[k];
+    this.buff = b;
+    this.updateArmor();
+  }
+
+  buffMod(k) {
+    return this.buff[k] || 0;
+  }
+
+  shieldUp(amount, dur, onEnd) {
+    if (this.shieldEnd) this.shieldEnd();
+    this.shield = amount;
+    this.shieldT = dur;
+    this.shieldEnd = onEnd;
+  }
+
+  breakShield() {
+    const cb = this.shieldEnd;
+    this.shield = 0;
+    this.shieldT = 0;
+    this.shieldEnd = null;
+    if (cb) cb();
+  }
+
+  rollDamage(mult, isSkill = false, forceCrit = false) {
     const f = this.final;
-    let amount = f.damage * mult * (isSkill ? f.skillMult : 1);
+    let amount = f.damage * mult * (isSkill ? f.skillMult : 1) * (1 + this.buff.dmg);
     amount *= 0.9 + Math.random() * 0.2;
-    const crit = Math.random() < f.crit;
+    const crit = forceCrit || this.nextCrit || Math.random() < f.crit + this.buff.crit;
+    this.nextCrit = false;
     if (crit) amount *= f.critMult;
     return { amount, crit };
   }
 
-  // ------------------------------------------------------------------ mesh
-  buildMesh() {
-    const g = new THREE.Group();
-    const armor = new THREE.MeshLambertMaterial({ color: 0x8a9bb5 });
-    const dark = new THREE.MeshLambertMaterial({ color: 0x2c3444 });
-    const skin = new THREE.MeshLambertMaterial({ color: 0xe0b48f });
-    const cape = new THREE.MeshLambertMaterial({ color: 0xb8322f, side: THREE.DoubleSide });
-    this.bodyMats = [armor, dark, skin, cape];
-
-    const root = new THREE.Group(); // bob / lean
-    g.add(root);
-
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.62, 0.38), armor);
-    torso.position.y = 1.0;
-    root.add(torso);
-    const belt = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.12, 0.4), dark);
-    belt.position.y = 0.72;
-    root.add(belt);
-
-    const head = new THREE.Group();
-    head.position.y = 1.5;
-    const face = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.34, 0.34), skin);
-    head.add(face);
-    const helm = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.22, 0.42), armor);
-    helm.position.set(0, 0.12, -0.02);
-    head.add(helm);
-    const plume = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.18, 0.36), cape);
-    plume.position.set(0, 0.3, -0.04);
-    head.add(plume);
-    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.06, 0.05), dark);
-    visor.position.set(0, 0.02, 0.18);
-    head.add(visor);
-    root.add(head);
-
-    const capeMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.56, 0.8), cape);
-    capeMesh.geometry.translate(0, -0.4, 0);
-    capeMesh.position.set(0, 1.28, -0.21);
-    root.add(capeMesh);
-    this.cape = capeMesh;
-
-    const mkLimb = (w, h, mat, x, y) => {
-      const pivot = new THREE.Group();
-      pivot.position.set(x, y, 0);
-      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, w), mat);
-      m.position.y = -h / 2;
-      pivot.add(m);
-      root.add(pivot);
-      return pivot;
-    };
-    // model faces +z, so the character's right-hand side is -x
-    this.legL = mkLimb(0.22, 0.66, dark, 0.16, 0.66);
-    this.legR = mkLimb(0.22, 0.66, dark, -0.16, 0.66);
-    this.armL = mkLimb(0.18, 0.58, armor, 0.42, 1.26);
-    this.armR = mkLimb(0.18, 0.58, armor, -0.42, 1.26);
-
-    // shield on left arm
-    const shield = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.5, 0.42), new THREE.MeshLambertMaterial({ color: 0x6b4a2b }));
-    shield.position.set(0.1, -0.35, 0.05);
-    this.armL.add(shield);
-
-    // sword in right hand
-    const sword = new THREE.Group();
-    sword.position.set(0, -0.56, 0.05);
-    this.swordMat = new THREE.MeshLambertMaterial({ color: 0xdfe6ee, emissive: 0x000000 });
-    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.05, 1.1), this.swordMat);
-    blade.position.z = 0.62;
-    sword.add(blade);
-    const guard = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.07, 0.07), dark);
-    guard.position.z = 0.06;
-    sword.add(guard);
-    const hilt = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.2), dark);
-    hilt.position.z = -0.06;
-    sword.add(hilt);
-    this.armR.add(sword);
-    this.sword = sword;
-
-    // blob shadow
-    const shadow = new THREE.Mesh(
-      new THREE.CircleGeometry(0.5, 20),
-      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.4, depthWrite: false }),
-    );
-    shadow.rotation.x = -Math.PI / 2;
-    this.shadow = shadow;
-
-    this.root = root;
-    this.head = head;
-    this.mesh = g;
-    this.updateWeaponLook();
+  // Turn toward the best target near the intended direction.
+  aimAt(ctx, range, cone, ranged = false) {
+    const pref = ctx.wish ?? (ranged ? ctx.camYaw : this.heading);
+    const t = this.game.findTarget(this.x, this.z, pref, range, cone);
+    this.heading = t ? Math.atan2(t.x - this.x, t.z - this.z) : pref;
+    return t;
   }
 
-  updateWeaponLook() {
-    const w = this.equipment.weapon;
-    if (w && w.rarity.id !== 'common') {
-      this.swordMat.color.setHex(w.rarity.hex);
-      this.swordMat.emissive.setHex(w.rarity.hex).multiplyScalar(0.45);
-    } else {
-      this.swordMat.color.setHex(0xdfe6ee);
-      this.swordMat.emissive.setHex(0x000000);
+  act(o) {
+    const a = { t: 0, dur: 0.3, move: 0, anim: 'cast', ...o };
+    this.action = a;
+    this.attack = null;
+    if (a.invuln) this.invuln = Math.max(this.invuln, a.invuln);
+    return a;
+  }
+
+  teleport(dx, dz, dist) {
+    const dg = this.game.dungeon;
+    const step = 0.25;
+    let x = this.x;
+    let z = this.z;
+    for (let d = step; d <= dist; d += step) {
+      const nx = this.x + dx * d;
+      const nz = this.z + dz * d;
+      if (dg.blocked(nx, nz, this.radius, this.y + 1.3)) break;
+      x = nx;
+      z = nz;
     }
+    this.x = x;
+    this.z = z;
+    this.y = Math.max(this.y, dg.maxHeightUnder(x, z, this.radius * 0.8));
+  }
+
+  leapSlam(ctx, o) {
+    const t = this.aimAt(ctx, 11, 1.2);
+    let vx = Math.sin(this.heading) * 6;
+    let vz = Math.cos(this.heading) * 6;
+    if (this.grounded) {
+      this.vy = 11;
+      const flight = (2 * 11) / GRAVITY;
+      if (t) {
+        const d = Math.max(0, Math.hypot(t.x - this.x, t.z - this.z) - 0.8);
+        const sp = Math.min(d / flight, 14);
+        vx = Math.sin(this.heading) * sp;
+        vz = Math.cos(this.heading) * sp;
+      }
+    } else {
+      this.vy = -22;
+      vx *= 0.3;
+      vz *= 0.3;
+    }
+    this.grounded = false;
+    sfx.jump();
+    const g = this.game;
+    this.act({
+      anim: 'leap',
+      dur: 3,
+      untilLand: true,
+      vel: { x: vx, z: vz },
+      update: () => g.effects.puff(this.x, this.y + 0.8, this.z, 0xffb347, 0.3, 0.3),
+      land: () => {
+        const R = o.radius;
+        g.effects.ring(this.x, this.z, R, 0xffb347, 0.4, this.y + 0.1);
+        g.effects.ring(this.x, this.z, R * 0.6, 0xffffff, 0.3, this.y + 0.12);
+        g.effects.burst(this.x, this.y + 0.2, this.z, 0x9a8a70, 24, 8, 0.2, 0.6);
+        g.effects.spikes(this.x, this.z, 0x8a7a60, R * 0.7);
+        g.effects.shake(0.5);
+        g.hitStop(0.06);
+        sfx.slam();
+        g.hitEnemiesInRadius(this.x, this.z, R, (e) => {
+          if (o.stun) e.status({ stun: o.stun });
+          return { ...this.rollDamage(o.dmg, true), knock: 9, launch: 6 };
+        });
+        this.act({ anim: 'slamLand', dur: 0.25 });
+      },
+    });
   }
 
   // --------------------------------------------------------------- update
@@ -268,6 +367,8 @@ export class Player {
     this.invuln = Math.max(0, this.invuln - dt);
     this.hurtFlash = Math.max(0, this.hurtFlash - dt);
     this.comboTimer = Math.max(0, this.comboTimer - dt);
+    this.landT = Math.max(0, this.landT - dt);
+    if (this.flipT > 0) this.flipT = Math.max(0, this.flipT - dt);
     for (let i = 0; i < 4; i++) this.cooldowns[i] = Math.max(0, this.cooldowns[i] - dt);
     if (this.dashCharges < this.mods.dashCharges) {
       this.dashRecharge += dt;
@@ -275,6 +376,19 @@ export class Player {
         this.dashRecharge = 0;
         this.dashCharges++;
       }
+    }
+    let buffChanged = false;
+    for (const id in this.buffs) {
+      this.buffs[id].t -= dt;
+      if (this.buffs[id].t <= 0) {
+        delete this.buffs[id];
+        buffChanged = true;
+      }
+    }
+    if (buffChanged) this.refreshBuffs();
+    if (this.shieldT > 0) {
+      this.shieldT -= dt;
+      if (this.shieldT <= 0) this.breakShield();
     }
     if (this.mods.regen > 0) this.heal(f.maxHp * this.mods.regen * dt, false);
 
@@ -290,63 +404,72 @@ export class Player {
       wz /= wlen;
     }
     const hasMove = wmag > 0.05;
-    const wishHeading = hasMove ? Math.atan2(wx, wz) : this.heading;
+    const wishHeading = hasMove ? Math.atan2(wx, wz) : null;
+    const ctx = { wish: wishHeading, camYaw: cam.yaw };
 
     // ---------------- actions
     if (input.pressed.jump) this.tryJump();
     if (input.pressed.dash) this.tryDash(hasMove ? { x: wx, z: wz } : { x: Math.sin(this.heading), z: Math.cos(this.heading) });
-    // skills are buffered briefly so a swipe released mid-swing still fires
     if (input.skillPressed >= 0) this.skillBuffer = { idx: input.skillPressed, t: 0.35 };
     if (this.skillBuffer) {
       this.skillBuffer.t -= dt;
-      if (this.trySkill(this.skillBuffer.idx, hasMove ? wishHeading : null, cam) || this.skillBuffer.t <= 0) this.skillBuffer = null;
+      if (this.trySkill(this.skillBuffer.idx, ctx) || this.skillBuffer.t <= 0) this.skillBuffer = null;
     }
     if (input.pressed.attack) this.attackBuffered = true;
     if ((this.attackBuffered || input.attackHeld) && this.canStartAttack()) {
-      this.startAttack(hasMove ? wishHeading : null);
+      this.startAttack(ctx);
       this.attackBuffered = false;
     }
 
     // ---------------- horizontal velocity
-    let speed = f.moveSpeed * wmag;
-    let tvx = hasMove ? wx * speed : 0;
-    let tvz = hasMove ? wz * speed : 0;
+    const a = this.action;
+    const ms = f.moveSpeed * (1 + this.buff.ms);
+    let tvx = hasMove ? wx * ms * wmag : 0;
+    let tvz = hasMove ? wz * ms * wmag : 0;
     let accel = this.grounded ? 60 : 25;
-
-    if (this.skill && this.skill.id === 'slam' && this.skill.airborne) {
-      tvx = this.skill.vx;
-      tvz = this.skill.vz;
-      accel = 1000;
+    let snap = false;
+    if (a && a.vel) {
+      tvx = a.vel.x;
+      tvz = a.vel.z;
+      snap = true;
     } else if (this.dashTime > 0) {
       tvx = this.dashDir.x * DASH_SPEED;
       tvz = this.dashDir.z * DASH_SPEED;
-      accel = 1000;
+      snap = true;
+    } else if (a) {
+      tvx *= a.move;
+      tvz *= a.move;
     } else if (this.attack) {
-      // small forward lunge during the swing, otherwise rooted
-      const a = this.attack;
-      const lunge = a.t < a.dur * 0.4 ? 5 : 0;
-      tvx = Math.sin(this.heading) * lunge + tvx * 0.15;
-      tvz = Math.cos(this.heading) * lunge + tvz * 0.15;
-      accel = 80;
-    } else if (this.skill && this.skill.id === 'whirl') {
-      tvx *= 0.8;
-      tvz *= 0.8;
+      const at = this.attack;
+      if (at.c.ranged) {
+        tvx *= 0.5;
+        tvz *= 0.5;
+      } else {
+        // small forward lunge during the swing, otherwise rooted
+        const lunge = at.t < at.dur * 0.45 ? 5 : 0;
+        tvx = Math.sin(this.heading) * lunge + tvx * 0.15;
+        tvz = Math.cos(this.heading) * lunge + tvz * 0.15;
+        accel = 80;
+      }
     }
-    const k = Math.min(1, accel * dt / Math.max(1, Math.hypot(tvx - this.vx, tvz - this.vz)));
-    this.vx += (tvx - this.vx) * (accel === 1000 ? 1 : k);
-    this.vz += (tvz - this.vz) * (accel === 1000 ? 1 : k);
+    if (snap) {
+      this.vx = tvx;
+      this.vz = tvz;
+    } else {
+      const k = Math.min(1, (accel * dt) / Math.max(1, Math.hypot(tvx - this.vx, tvz - this.vz)));
+      this.vx += (tvx - this.vx) * k;
+      this.vz += (tvz - this.vz) * k;
+    }
 
     // ---------------- facing
-    if (!this.attack && !(this.skill && this.skill.id === 'whirl') && hasMove) {
-      const d = angleDiff(this.heading, wishHeading);
-      this.heading += d * Math.min(1, dt * 16);
-    }
+    const busyFacing = this.attack || (a && (a.anim === 'spin' || a.vel || a.anim === 'draw'));
+    if (!busyFacing && hasMove) this.heading += angleDiff(this.heading, wishHeading) * Math.min(1, dt * 16);
 
     // ---------------- dash
     if (this.dashTime > 0) {
       this.dashTime -= dt;
       this.vy = Math.max(this.vy, 0);
-      if (Math.random() < 0.9) game.effects.puff(this.x, this.y + 0.9, this.z, 0x9fd8ff, 0.35, 0.25);
+      game.effects.puff(this.x, this.y + 0.9, this.z, 0x9fd8ff, 0.35, 0.25);
       if (this.mods.fireDash) {
         this.fireTrailT -= dt;
         if (this.fireTrailT <= 0) {
@@ -356,24 +479,31 @@ export class Player {
       }
     }
 
-    // ---------------- attack progression
+    // ---------------- basic attack progression
     if (this.attack) {
-      const a = this.attack;
-      a.t += dt;
-      const c = COMBO[a.i];
-      if (!a.hit && a.t >= a.dur * c.hitAt) {
-        a.hit = true;
-        this.performHit(a.i);
+      const at = this.attack;
+      at.t += dt;
+      if (!at.hit && at.t >= at.dur * at.c.hitAt) {
+        at.hit = true;
+        this.performHit(at);
       }
-      if (a.t >= a.dur) {
+      if (at.t >= at.dur) {
         this.attack = null;
-        this.comboTimer = 0.45;
-        this.comboIndex = (a.i + 1) % COMBO.length;
+        this.comboTimer = 0.5;
+        this.comboIndex = (at.i + 1) % this.chain.length;
       }
     }
 
-    // ---------------- active skills
-    this.updateSkill(dt);
+    // ---------------- skill action progression
+    if (a) {
+      a.t += dt;
+      if (a.update) a.update(dt, a);
+      if (a.untilLand && a.t > 3 && this.action === a) this.action = null; // safety: never hang mid-air
+      if (!a.untilLand && a.t >= a.dur && this.action === a) {
+        this.action = null;
+        if (a.end) a.end(a);
+      }
+    }
 
     // ---------------- physics
     if (this.dashTime <= 0) this.vy -= GRAVITY * dt;
@@ -382,21 +512,29 @@ export class Player {
     const ground = dg.maxHeightUnder(this.x, this.z, this.radius * 0.8);
     const wasGrounded = this.grounded;
     if (this.y <= ground) {
-      if (!this.grounded && this.vy < -4) game.effects.burst(this.x, ground + 0.1, this.z, 0x777777, 5, 2, 0.1, 0.3);
+      if (!this.grounded && this.vy < -4) {
+        game.effects.burst(this.x, ground + 0.1, this.z, 0x777777, 5, 2, 0.1, 0.3);
+        this.landT = 0.16;
+      }
       this.y = ground;
       this.vy = 0;
       this.grounded = true;
       this.coyote = 0.1;
       this.airJumpsLeft = this.mods.airJumps;
-      if (this.skill && this.skill.id === 'slam' && this.skill.airborne) this.landSlam();
+      const cur = this.action;
+      if (cur && cur.untilLand && cur.t > 0.05) {
+        this.action = null;
+        if (cur.land) cur.land(cur);
+      }
     } else if (this.y > ground + 0.02) {
       this.grounded = false;
     }
     if (wasGrounded && !this.grounded) this.coyote = 0.1;
     if (!this.grounded) this.coyote = Math.max(0, this.coyote - dt);
-    if (this.y < -20) this.y = ground; // safety
+    if (this.y < -20) this.y = ground;
 
-    this.animate(dt, hasMove ? wmag : 0);
+    this.speed = Math.hypot(this.vx, this.vz);
+    this.animate(dt);
   }
 
   heal(amount, show = true) {
@@ -406,17 +544,19 @@ export class Player {
   }
 
   tryJump() {
-    if (this.skill && this.skill.id === 'slam') return;
+    if (this.action && (this.action.untilLand || this.action.vel)) return;
     if (this.grounded || this.coyote > 0) {
       this.vy = JUMP_V;
       this.grounded = false;
       this.coyote = 0;
       this.attack = null;
+      this.action = null;
       sfx.jump();
     } else if (this.airJumpsLeft > 0) {
       this.airJumpsLeft--;
       this.vy = AIR_JUMP_V;
       this.attack = null;
+      this.flipT = 0.4;
       sfx.djump();
       this.game.effects.ring(this.x, this.z, 1.4, 0xbfe6ff, 0.3, this.y + 0.05);
       this.game.effects.burst(this.x, this.y + 0.2, this.z, 0xbfe6ff, 8, 3, 0.12, 0.35, 4);
@@ -432,49 +572,72 @@ export class Player {
 
   tryDash(dir) {
     if (this.dashCharges <= 0 || this.dashTime > 0) return;
-    if (this.skill && this.skill.id === 'slam') return;
+    if (this.action && (this.action.untilLand || this.action.vel)) return;
     this.dashCharges--;
     this.dashTime = DASH_TIME;
     this.invuln = Math.max(this.invuln, DASH_TIME + 0.08);
     this.dashDir = dir;
     this.heading = Math.atan2(dir.x, dir.z);
     this.attack = null;
+    this.action = null; // dashing cancels channels
     this.vy = Math.max(this.vy, 0);
     sfx.dash();
   }
 
   canStartAttack() {
-    if (this.dashTime > 0 || this.skill) return false;
+    if (this.dashTime > 0 || this.action) return false;
     if (!this.attack) return true;
-    // allow chaining into the next hit late in the current swing
     return this.attack.hit && this.attack.t > this.attack.dur * 0.7;
   }
 
-  startAttack(wishHeading) {
-    const i = this.attack ? (this.attack.i + 1) % COMBO.length : this.comboTimer > 0 ? this.comboIndex : 0;
-    const c = COMBO[i];
-    this.attack = { i, t: 0, dur: c.dur / this.final.atkSpeed, hit: false };
-    this.faceTarget(wishHeading, 5, 1.8);
-    if (!this.grounded) this.vy = Math.max(this.vy, 1.5); // tiny air hang
-    sfx.swing();
+  startAttack(ctx) {
+    const n = this.chain.length;
+    const i = this.attack ? (this.attack.i + 1) % n : this.comboTimer > 0 ? this.comboIndex : 0;
+    const c = this.chain[i];
+    const dur = c.dur / (this.final.atkSpeed * (1 + this.buff.as));
+    this.attack = { i, c, t: 0, dur, hit: false };
+    if (c.ranged) {
+      const pref = ctx.wish ?? ctx.camYaw;
+      const t = this.game.findTarget(this.x, this.z, pref, 20, 0.75);
+      this.attack.target = t;
+      this.heading = t ? Math.atan2(t.x - this.x, t.z - this.z) : pref;
+    } else {
+      const pref = ctx.wish ?? this.heading;
+      const t = this.game.findTarget(this.x, this.z, pref, 5, 1.8);
+      this.heading = t ? Math.atan2(t.x - this.x, t.z - this.z) : pref;
+    }
+    if (!this.grounded) this.vy = Math.max(this.vy, 1.5);
+    if (!c.ranged) sfx.swing();
   }
 
-  // Soft lock-on: turn toward the best enemy near the intended direction.
-  faceTarget(wishHeading, range, cone) {
-    const desired = wishHeading ?? this.heading;
-    const t = this.game.findTarget(this.x, this.z, desired, range, cone);
-    if (t) this.heading = Math.atan2(t.x - this.x, t.z - this.z);
-    else this.heading = desired;
-    return t;
-  }
-
-  performHit(i) {
-    const c = COMBO[i];
-    const range = c.range * this.mods.reach;
+  performHit(at) {
+    if (this.demo) return;
+    const c = at.c;
     const game = this.game;
-    game.effects.slash(this.x, this.y + 1.0, this.z, this.heading, range, i === 2 ? 0xffe9a8 : 0xffffff, Math.min(c.arc, Math.PI * 1.99), i === 1 ? 0.3 : i === 0 ? -0.3 : 0);
     const hx = Math.sin(this.heading);
     const hz = Math.cos(this.heading);
+    if (c.ranged) {
+      // re-aim at the locked target if it moved
+      if (at.target && at.target.alive) this.heading = Math.atan2(at.target.x - this.x, at.target.z - this.z);
+      const pierce = this.buffMod('pierce') ? 1 : 0;
+      if (c.ranged === 'arrow' || c.ranged === 'power') {
+        const power = c.ranged === 'power';
+        sfx.arrow();
+        game.shoot({ from: this, heading: this.heading, speed: power ? 38 : 32, life: 0.65, kind: power ? 'bigarrow' : 'arrow', dmg: () => this.rollDamage(c.mult), knock: power ? 6 : 3, pierce: pierce + (power ? 1 : 0) });
+      } else {
+        sfx.fire();
+        const n = c.ranged === 'missile3' ? 3 : 1;
+        for (let k = 0; k < n; k++) {
+          const off = n === 1 ? 0 : (k - 1) * 0.25;
+          game.shoot({ from: this, heading: this.heading + off, speed: 20, life: 0.95, kind: 'missile', homing: at.target, dmg: () => this.rollDamage(c.mult), knock: 3, pierce });
+        }
+      }
+      return;
+    }
+    const range = c.range * this.mods.reach;
+    const tilt = c.anim === 'slashL' || c.anim === 'stabL' ? 0.3 : c.anim === 'slashR' || c.anim === 'stabR' ? -0.3 : 0;
+    const col = c.anim.startsWith('stab') || c.anim === 'crossSlash' ? 0xffb0b0 : c.anim === 'spinSlash' ? 0xffe9a8 : 0xffffff;
+    game.effects.slash(this.x, this.y + 1.0, this.z, this.heading, range, col, Math.min(c.arc, Math.PI * 1.99), tilt);
     let hitAny = false;
     game.hitEnemiesInRadius(this.x, this.z, range + 0.4, (e) => {
       if (Math.abs(e.y + e.height * 0.5 - (this.y + 1)) > 1.8) return null;
@@ -486,121 +649,38 @@ export class Player {
       hitAny = true;
       return { ...this.rollDamage(c.mult), knock: c.knock, melee: true };
     });
-    if (hitAny && i === 2) game.effects.shake(0.25);
+    if (hitAny && c.knock >= 7) game.effects.shake(0.25);
   }
 
-  trySkill(idx, wishHeading, cam) {
-    if (this.cooldowns[idx] > 0) return true; // on cooldown: drop the request
-    if (this.skill || this.dashTime > 0) return false; // busy: keep it buffered
-    const def = SKILLS[idx];
-    this.cooldowns[idx] = def.cd * (1 - this.final.cdr);
+  trySkill(idx, ctx) {
+    const s = this.skills[idx];
+    if (!s) return true; // empty slot: drop the request
+    if (this.cooldowns[idx] > 0) return true;
+    if (this.action || this.dashTime > 0) return false; // busy: keep it buffered
+    const def = SKILLS[s.id];
+    this.cooldowns[idx] = def.cd(s.level) * (1 - this.final.cdr);
     this.attack = null;
-    const game = this.game;
-    const fx = game.effects;
-    if (def.id === 'slam') {
-      const t = this.faceTarget(wishHeading, 11, 1.2);
-      let vx = Math.sin(this.heading) * 6;
-      let vz = Math.cos(this.heading) * 6;
-      if (this.grounded) {
-        this.vy = 11;
-        const flight = (2 * 11) / GRAVITY;
-        if (t) {
-          const d = Math.max(0, Math.hypot(t.x - this.x, t.z - this.z) - 0.8);
-          const sp = Math.min(d / flight, 14);
-          vx = Math.sin(this.heading) * sp;
-          vz = Math.cos(this.heading) * sp;
-        }
-      } else {
-        this.vy = -22; // plunge
-        vx *= 0.3;
-        vz *= 0.3;
-      }
-      this.grounded = false;
-      this.skill = { id: 'slam', t: 0, airborne: true, vx, vz };
-      sfx.jump();
-    } else if (def.id === 'bolt') {
-      // aim: locked target, else where the camera is looking
-      const aimHeading = wishHeading ?? cam.yaw;
-      const t = this.faceTarget(aimHeading, 18, 0.9);
-      if (!t) this.heading = aimHeading;
-      const n = 1 + this.mods.boltExtra;
-      for (let i = 0; i < n; i++) {
-        const off = n === 1 ? 0 : (i - (n - 1) / 2) * 0.22;
-        game.spawnBolt(this.x, this.y + 1.1, this.z, this.heading + off, this.rollDamage(2.2, true), t && i === Math.floor(n / 2) ? t : null);
-      }
-      this.skill = { id: 'cast', t: 0, dur: 0.18 };
-      sfx.fire();
-    } else if (def.id === 'whirl') {
-      this.skill = { id: 'whirl', t: 0, dur: 1.4 * this.mods.whirlDur, tick: 0 };
-      sfx.swing();
-    } else if (def.id === 'nova') {
-      const R = 5.5 * this.mods.novaRadius;
-      fx.ring(this.x, this.z, R, 0x9fe3ff, 0.45, this.y + 0.1);
-      fx.ring(this.x, this.z, R * 0.7, 0xffffff, 0.35, this.y + 0.15);
-      fx.burst(this.x, this.y + 0.5, this.z, 0xcff4ff, 30, 9, 0.18, 0.6, 6);
-      sfx.frost();
-      game.hitEnemiesInRadius(this.x, this.z, R, (e) => {
-        e.freeze = Math.max(e.freeze, this.mods.novaFreeze);
-        return { ...this.rollDamage(1.3, true), knock: 3 };
-      });
-      this.skill = { id: 'cast', t: 0, dur: 0.25 };
-    }
+    def.cast(this, s.level, ctx);
+    this.game.ui.skillFlash(idx);
     return true;
-  }
-
-  updateSkill(dt) {
-    const s = this.skill;
-    if (!s) return;
-    s.t += dt;
-    const game = this.game;
-    if (s.id === 'cast') {
-      if (s.t >= s.dur) this.skill = null;
-    } else if (s.id === 'slam') {
-      if (s.t > 3) this.skill = null; // safety
-      if (Math.random() < 0.6) game.effects.puff(this.x, this.y + 0.8, this.z, 0xffb347, 0.3, 0.3);
-    } else if (s.id === 'whirl') {
-      s.tick -= dt;
-      if (s.tick <= 0) {
-        s.tick = 0.2;
-        sfx.swing();
-        game.effects.slash(this.x, this.y + 0.9, this.z, this.heading, 2.9 * this.mods.reach, 0x9be7ff, Math.PI * 1.99);
-        game.hitEnemiesInRadius(this.x, this.z, 2.9 * this.mods.reach, (e) => {
-          if (Math.abs(e.y - this.y) > 2) return null;
-          if (this.mods.whirlPull) {
-            const dx = this.x - e.x;
-            const dz = this.z - e.z;
-            const d = Math.hypot(dx, dz) || 1;
-            e.kx += (dx / d) * 6;
-            e.kz += (dz / d) * 6;
-            return { ...this.rollDamage(0.6, true), knock: 0 };
-          }
-          return { ...this.rollDamage(0.6, true), knock: 2 };
-        });
-      }
-      if (s.t >= s.dur) this.skill = null;
-    }
-  }
-
-  landSlam() {
-    const game = this.game;
-    const R = 3.6 * this.mods.slamPower;
-    game.effects.ring(this.x, this.z, R, 0xffb347, 0.4, this.y + 0.1);
-    game.effects.ring(this.x, this.z, R * 0.6, 0xffffff, 0.3, this.y + 0.12);
-    game.effects.burst(this.x, this.y + 0.2, this.z, 0x9a8a70, 24, 8, 0.2, 0.6);
-    game.effects.shake(0.5);
-    game.hitStop(0.06);
-    sfx.slam();
-    game.hitEnemiesInRadius(this.x, this.z, R, () => ({ ...this.rollDamage(2.6 * this.mods.slamPower, true), knock: 9, launch: 6 }));
-    this.skill = { id: 'cast', t: 0, dur: 0.2 };
   }
 
   takeDamage(amount, source = null, melee = false) {
     if (this.dead || this.invuln > 0) return false;
-    const dmg = Math.max(1, Math.round(amount * this.final.dmgTaken));
+    let dmg = Math.max(1, Math.round(amount * this.final.dmgTaken));
+    const game = this.game;
+    if (this.shield > 0) {
+      const absorbed = Math.min(this.shield, dmg);
+      this.shield -= absorbed;
+      dmg -= absorbed;
+      game.effects.damageNumber(this.x, this.y + 2.2, this.z, `(${absorbed})`, 'shield');
+      if (this.shield <= 0) this.breakShield();
+      this.invuln = 0.25;
+      if (dmg <= 0) return true;
+    }
     this.hp -= dmg;
     this.invuln = 0.45;
-    this.hurtFlash = 0.2;
-    const game = this.game;
+    this.hurtFlash = 0.22;
     game.effects.damageNumber(this.x, this.y + 2, this.z, `-${dmg}`, 'player');
     game.effects.shake(0.35);
     game.effects.burst(this.x, this.y + 1, this.z, 0xff3030, 8, 4, 0.12, 0.4);
@@ -612,98 +692,516 @@ export class Player {
     if (this.hp <= 0) {
       this.hp = 0;
       this.dead = true;
+      this.deadT = 0;
+      this.action = null;
+      this.attack = null;
       sfx.death();
     }
     return true;
   }
 
   // ------------------------------------------------------------- animation
-  animate(dt, moveAmt) {
+  animate(dt) {
     this.animT += dt;
     const t = this.animT;
+    const hero = this.hero;
+    const rig = hero.rig;
+    const P = rig.pose;
     const m = this.mesh;
     m.position.set(this.x, this.y, this.z);
     m.rotation.y = this.heading;
-    const root = this.root;
-    root.rotation.set(0, 0, 0);
-    root.position.set(0, 0, 0);
+    rig.resetPose();
 
-    const hspeed = Math.hypot(this.vx, this.vz);
-    const run = this.grounded ? clamp(hspeed / 7, 0, 1.3) : 0;
-    const cyc = t * 12;
-    let legL = Math.sin(cyc) * 0.9 * run;
-    let legR = -legL;
-    let armL = -Math.sin(cyc) * 0.6 * run;
-    let armR = Math.sin(cyc) * 0.6 * run - 0.3;
-    let armRz = 0;
-    let swordX = 0.5;
-    root.position.y = Math.abs(Math.sin(cyc)) * 0.08 * run;
+    const hs = this.speed;
+    const run = this.grounded ? clamp(hs / 7.5, 0, 1.25) : 0;
+    this.runPhase += dt * (4 + hs * 1.25);
+    let k = 1 - Math.exp(-dt * 16);
+    let spinY = null;
+    let flipX = null;
+    let draw = 0;
+    let showArrow = false;
+    const wt = this.cls.weapon;
 
-    if (!this.grounded) {
-      legL = -0.6;
-      legR = 0.3;
-      armL = -0.8;
-      armR = -1.2;
+    if (this.dead) {
+      this.deadT += dt;
+      const d = easeOut(this.deadT / 0.6);
+      P.thighL[0] = -1.4 * d;
+      P.thighR[0] = -1.2 * d;
+      P.shinL[0] = 1.6 * d;
+      P.shinR[0] = 1.8 * d;
+      P.body[0] = -1.35 * clamp((this.deadT - 0.25) / 0.5, 0, 1);
+      P.bodyY = -0.55 * d - 0.15 * clamp((this.deadT - 0.25) / 0.5, 0, 1);
+      P.armL[2] = 0.9 * d;
+      P.armR[2] = -0.9 * d;
+      P.head[0] = -0.4 * d;
+      k = 1 - Math.exp(-dt * 10);
+    } else {
+      // base: locomotion + idle + weapon stance
+      rig.locomotion(this.runPhase, run, wt === 'sword' ? 0.45 : 0.8);
+      rig.idle(t, 1 - Math.min(1, run));
+      this.stance(P, run);
+
+      const a = this.action;
+      const at = this.attack;
+      if (!this.grounded && !(a && a.anim === 'leap') && this.dashTime <= 0) this.airPose(P);
+      if (this.landT > 0) {
+        const l = this.landT / 0.16;
+        P.bodyY -= 0.16 * l;
+        P.thighL[0] -= 0.6 * l;
+        P.thighR[0] -= 0.6 * l;
+        P.shinL[0] += 1.1 * l;
+        P.shinR[0] += 1.1 * l;
+        P.body[0] += 0.2 * l;
+      }
+      if (this.dashTime > 0) {
+        P.body[0] = 0.55;
+        P.armL[0] = 0.9;
+        P.armR[0] = 0.9;
+        P.armL[2] = 0.3;
+        P.armR[2] = -0.3;
+        P.thighL[0] = -0.7;
+        P.shinL[0] = 1.0;
+        P.thighR[0] = 0.7;
+        P.shinR[0] = 0.5;
+        P.head[0] = -0.3;
+        k = 1 - Math.exp(-dt * 30);
+      }
+      if (at) {
+        const r = this.attackPose(P, at);
+        if (r) {
+          if (r.spinY !== undefined) spinY = r.spinY;
+          draw = r.draw ?? 0;
+          showArrow = r.arrow ?? false;
+        }
+        k = 1 - Math.exp(-dt * 34);
+      }
+      if (a) {
+        const r = this.actionPose(P, a);
+        if (r) {
+          if (r.spinY !== undefined) spinY = r.spinY;
+          if (r.flipX !== undefined) flipX = r.flipX;
+          if (r.draw !== undefined) {
+            draw = r.draw;
+            showArrow = r.arrow ?? true;
+          }
+        }
+        k = 1 - Math.exp(-dt * 28);
+      }
+      if (this.flipT > 0 && flipX === null) flipX = (1 - this.flipT / 0.4) * TAU;
+      if (this.hurtFlash > 0) {
+        const h = this.hurtFlash / 0.22;
+        P.chest[0] -= 0.35 * h;
+        P.head[0] -= 0.25 * h;
+        P.armL[2] += 0.3 * h;
+        P.armR[2] -= 0.3 * h;
+      }
     }
-    if (this.dashTime > 0) {
-      root.rotation.x = 0.6;
-      legL = 0.8;
-      legR = 0.6;
-      armL = 1.2;
-      armR = 1.2;
+
+    rig.body.rotation.y = wrap(rig.body.rotation.y);
+    rig.body.rotation.x = wrap(rig.body.rotation.x);
+    rig.apply(k);
+    if (spinY !== null) rig.body.rotation.y = spinY;
+    if (flipX !== null) rig.body.rotation.x = flipX;
+
+    // bow string follows the draw
+    const w = hero.weapon;
+    if (w && w.bow) w.bow.userData.setDraw(draw, showArrow);
+
+    // cape sway
+    if (hero.cape) {
+      const [top, bot] = hero.cape;
+      const lift = Math.min(1.1, hs * 0.09) + (this.vy < 0 ? Math.min(0.6, -this.vy * 0.04) : 0);
+      top.rotation.x += (0.12 + lift + Math.sin(t * 3) * 0.03 - top.rotation.x) * Math.min(1, dt * 8);
+      bot.rotation.x += (lift * 0.5 + Math.sin(t * 4 + 1) * 0.08 - bot.rotation.x) * Math.min(1, dt * 6);
+    }
+    if (hero.orbit) {
+      hero.orbit.position.set(Math.cos(t * 2) * 0.6, 1.5 + Math.sin(t * 3) * 0.12, Math.sin(t * 2) * 0.6);
+      hero.orbit.rotation.y = t * 3;
+    }
+    // legendary weapons shed sparks
+    if (w && this.equipment.weapon && this.equipment.weapon.rarity.tier >= 4 && Math.random() < 0.25 && !this.demo) {
+      const tip = w.tips[Math.floor(Math.random() * w.tips.length)];
+      tip.getWorldPosition(this._tmp || (this._tmp = new THREE.Vector3()));
+      this.game.effects.puff(this._tmp.x, this._tmp.y, this._tmp.z, this.equipment.weapon.rarity.hex, 0.12, 0.35);
+    }
+
+    // shield bubble, hurt tint, invuln flicker
+    this.shieldMesh.visible = this.shield > 0;
+    if (this.shield > 0) this.shieldMesh.rotation.y = t;
+    const hurt = this.hurtFlash > 0 ? 0x802020 : 0x000000;
+    hero.mats.skin.emissive.setHex(hurt);
+    hero.mats.cloth.emissive.setHex(hurt);
+    const flick = this.invuln > 0.1 && this.hurtFlash <= 0 && this.dashTime <= 0 && !this.action && Math.floor(t * 20) % 2 === 0;
+    rig.scaler.visible = !flick;
+
+    const g = this.game.dungeon ? this.game.dungeon.maxHeightUnder(this.x, this.z, 0.2) : 0;
+    this.shadow.position.set(this.x, g + 0.03, this.z);
+    const ss = clamp(1 - (this.y - g) * 0.12, 0.4, 1);
+    this.shadow.scale.set(ss, ss, ss);
+  }
+
+  // Resting weapon hold, blended over the run cycle.
+  stance(P, run) {
+    const wt = this.cls.weapon;
+    const k = 0.75;
+    const mix = (arr, v) => {
+      arr[0] += (v[0] - arr[0]) * k;
+      arr[1] += (v[1] - arr[1]) * k;
+      arr[2] += (v[2] - arr[2]) * k;
+    };
+    if (wt === 'sword') {
+      mix(P.armR, [-0.35 + P.armR[0] * 0.3, 0, -0.15]);
+      mix(P.foreR, [-1.0, 0, 0]);
+      P.handR[0] = -0.2;
+      mix(P.armL, [-0.55, 0.2, 0.25]);
+      mix(P.foreL, [-1.2, 0.3, 0]);
+    } else if (wt === 'daggers') {
+      mix(P.armR, [-0.3 + P.armR[0] * 0.5, 0, -0.2]);
+      mix(P.armL, [-0.3 + P.armL[0] * 0.5, 0, 0.2]);
+      P.foreR[0] = -1.1;
+      P.foreL[0] = -1.1;
+      P.handR[0] = 0.6;
+      P.handL[0] = 0.6;
+    } else if (wt === 'bow') {
+      mix(P.armL, [-0.2 + P.armL[0] * 0.4, 0, 0.15]);
+      P.foreL[0] = -0.5;
+      P.handL[0] = -0.2;
+      P.handL[1] = 0;
+    } else if (wt === 'staff') {
+      mix(P.armR, [-0.3, 0, -0.18]);
+      P.foreR[0] = -1.3;
+      P.handR[0] = -0.25;
+    }
+    P.head[1] = -P.chest[1] * 0.6;
+    void run;
+  }
+
+  airPose(P) {
+    const up = this.vy > 0;
+    const v = clamp(this.vy / 10, -1, 1);
+    P.thighL[0] = up ? -1.0 : -0.3;
+    P.shinL[0] = up ? 1.5 : 0.5;
+    P.thighR[0] = up ? 0.25 : 0.1;
+    P.shinR[0] = up ? 0.7 : 0.3;
+    P.armL[2] += 0.5 - v * 0.3;
+    P.armR[2] -= 0.5 - v * 0.3;
+    P.body[0] = up ? 0.15 : -0.05;
+  }
+
+  attackPose(P, at) {
+    const c = at.c;
+    const p = at.t / at.dur;
+    const h = c.hitAt;
+    const wind = ease(p / h);
+    const strike = easeOut((p - h * 0.75) / (1 - h * 0.75) * 1.8);
+    const legsStance = () => {
+      P.thighL[0] = -0.45;
+      P.shinL[0] = 0.35;
+      P.thighR[0] = 0.35;
+      P.shinR[0] = 0.25;
+      P.bodyY = -0.06;
+    };
+    switch (c.anim) {
+      case 'slashR': {
+        legsStance();
+        const z = -1.5 * wind + 2.7 * strike;
+        P.armR = [-1.45, 0, z * 1 - 0 + (p < h ? 0 : 0)];
+        P.armR[2] = p < h * 0.75 ? -1.5 * wind : -1.5 + 2.7 * strike;
+        P.foreR = [-0.25, 0, 0];
+        P.handR = [1.25, 0, 0];
+        P.chest[1] = p < h * 0.75 ? -0.55 * wind : -0.55 + 1.1 * strike;
+        P.armL = [-0.6, 0, 0.5];
+        P.foreL = [-1.1, 0, 0];
+        return null;
+      }
+      case 'slashL': {
+        legsStance();
+        P.armR[0] = -1.45;
+        P.armR[2] = p < h * 0.75 ? 1.1 * wind : 1.1 - 2.6 * strike;
+        P.foreR = [-0.3, 0, 0];
+        P.handR = [1.25, 0, 0];
+        P.chest[1] = p < h * 0.75 ? 0.5 * wind : 0.5 - 1.0 * strike;
+        P.armL = [-0.6, 0, 0.5];
+        P.foreL = [-1.1, 0, 0];
+        return null;
+      }
+      case 'spinSlash': {
+        P.thighL = [-0.4, 0, 0.35];
+        P.thighR = [-0.2, 0, -0.35];
+        P.shinL[0] = 0.5;
+        P.shinR[0] = 0.5;
+        P.bodyY = -0.14;
+        P.armR = [-1.5, 0, -0.4];
+        P.handR = [1.3, 0, 0];
+        P.armL = [-0.3, 0, 1.2];
+        const s = p < h * 0.6 ? -0.4 * wind : -0.4 + (TAU + 0.4) * easeOut((p - h * 0.6) / (1 - h * 0.6) * 1.4);
+        return { spinY: s };
+      }
+      case 'stabR':
+      case 'stabL': {
+        const right = c.anim === 'stabR';
+        const A = right ? P.armR : P.armL;
+        const F = right ? P.foreR : P.foreL;
+        const H = right ? P.handR : P.handL;
+        const O = right ? P.armL : P.armR;
+        const OF = right ? P.foreL : P.foreR;
+        const ext = p < h ? 0 : strike;
+        A[0] = -0.4 - 1.15 * ext + 0.3 * wind * (1 - ext);
+        A[2] = (right ? -1 : 1) * 0.15;
+        F[0] = -1.7 + 1.6 * ext;
+        H[0] = 1.3;
+        O[0] = 0.2;
+        OF[0] = -1.4;
+        P.chest[1] = (right ? 1 : -1) * (-0.3 * wind + 0.7 * ext);
+        legsStance();
+        if (!right) {
+          P.thighL[0] = 0.35;
+          P.thighR[0] = -0.45;
+        }
+        return null;
+      }
+      case 'crossSlash': {
+        legsStance();
+        const s = p < h * 0.7 ? 0 : strike;
+        P.armR = [-1.9 + 0.5 * s, 0, 0.6 - 1.9 * s];
+        P.armL = [-1.9 + 0.5 * s, 0, -0.6 + 1.9 * s];
+        P.foreR = [-0.4, 0, 0];
+        P.foreL = [-0.4, 0, 0];
+        P.handR = [1.2, 0, 0];
+        P.handL = [1.2, 0, 0];
+        P.chest[0] = -0.2 * wind + 0.35 * s;
+        return null;
+      }
+      case 'bowShot': {
+        const d = p < h ? ease(p / h) : Math.max(0, 1 - (p - h) * 8);
+        this.bowAim(P, d);
+        return { draw: d, arrow: p < h };
+      }
+      case 'staffR':
+      case 'staffL':
+      case 'staffBurst': {
+        const s = p < h ? 0 : strike;
+        if (c.anim === 'staffBurst') {
+          P.armR = [-2.5 + 1.2 * s, 0, -0.2];
+          P.armL = [-2.5 + 1.1 * s, 0, 0.2];
+          P.foreR[0] = -0.3;
+          P.foreL[0] = -0.3;
+          P.handR[0] = -0.2 + 1.0 * s;
+          P.chest[0] = -0.25 * wind + 0.3 * s;
+        } else {
+          const right = c.anim === 'staffR';
+          P.armR = [-0.5 - 0.9 * s * (right ? 1 : 0.3), 0, -0.2];
+          P.foreR[0] = -1.2 + 0.9 * s * (right ? 1 : 0.3);
+          P.handR[0] = -0.3 + 0.9 * s * (right ? 1 : 0.2);
+          P.armL = [right ? -0.3 : -0.6 - 1.0 * s, 0, 0.25];
+          P.foreL[0] = right ? -0.6 : -0.9 + 0.8 * s;
+          P.handL[0] = -1.2;
+          P.chest[1] = (right ? 0.35 : -0.35) * s;
+        }
+        legsStance();
+        return null;
+      }
+      default:
+        return null;
+    }
+  }
+
+  bowAim(P, d) {
+    P.chest[1] = -0.55;
+    P.head[1] = 0.5;
+    P.armL = [-1.55, 0.55, 0.0];
+    P.foreL = [0, 0, 0];
+    P.handL = [0, 0, 0];
+    P.armR = [-1.55 + 0.1 * d, -0.1 - 0.5 * d, -0.35 * d];
+    P.foreR = [-0.4 - 1.7 * d, 0, 0];
+    P.handR = [-0.4, 0, 0];
+    P.thighL[0] = -0.3;
+    P.thighR[0] = 0.25;
+  }
+
+  actionPose(P, a) {
+    const p = clamp(a.t / Math.max(0.01, a.dur), 0, 1);
+    switch (a.anim) {
+      case 'spin':
+        P.armL = [-0.2, 0, 1.45];
+        P.armR = [-0.2, 0, -1.45];
+        P.foreL[0] = 0;
+        P.foreR[0] = 0;
+        P.handR[0] = 1.3;
+        P.handL[0] = 1.3;
+        P.thighL[2] = 0.3;
+        P.thighR[2] = -0.3;
+        P.bodyY = -0.08;
+        return { spinY: a.t * 20 };
+      case 'charge':
+        P.body[0] = 0.4;
+        P.armL = [-1.4, 0.3, 0.3];
+        P.foreL = [-0.9, 0, 0];
+        P.armR = [0.5, 0, -0.3];
+        return null;
+      case 'roar':
+        P.armL = [-0.6, 0, 1.3];
+        P.armR = [-0.6, 0, -1.3];
+        P.foreL[0] = -0.8;
+        P.foreR[0] = -0.8;
+        P.chest[0] = -0.3;
+        P.head[0] = -0.35;
+        P.thighL[2] = 0.25;
+        P.thighR[2] = -0.25;
+        P.bodyY = -0.08;
+        return null;
+      case 'overhead': {
+        const s = p < 0.4 ? ease(p / 0.4) : 1 - easeOut((p - 0.4) / 0.25);
+        P.armR = [-0.6 - 2.3 * s, 0, 0.1];
+        P.armL = [-0.6 - 2.3 * s, 0, -0.1];
+        P.foreR[0] = -0.4;
+        P.foreL[0] = -0.4;
+        P.handR[0] = 0.8;
+        P.body[0] = p < 0.4 ? -0.15 : 0.45;
+        P.bodyY = p < 0.4 ? 0 : -0.15;
+        P.thighL[0] = -0.6;
+        P.shinL[0] = 0.6;
+        P.thighR[0] = 0.4;
+        return null;
+      }
+      case 'leap':
+        P.armR = [-2.8, 0, 0.2];
+        P.armL = [-2.6, 0, -0.2];
+        P.foreR[0] = -0.5;
+        P.foreL[0] = -0.5;
+        P.handR[0] = 0.9;
+        P.thighL[0] = -1.1;
+        P.shinL[0] = 1.7;
+        P.thighR[0] = -0.7;
+        P.shinR[0] = 1.5;
+        P.body[0] = this.vy > 0 ? -0.25 : 0.4;
+        return null;
+      case 'slamLand':
+        P.armR = [-0.9, 0, 0];
+        P.armL = [-0.7, 0, 0];
+        P.handR[0] = 1.2;
+        P.body[0] = 0.5;
+        P.bodyY = -0.3;
+        P.thighL[0] = -1.1;
+        P.shinL[0] = 1.6;
+        P.thighR[0] = 0.3;
+        P.shinR[0] = 1.2;
+        return null;
+      case 'shoot':
+        this.bowAim(P, p < 0.5 ? 1 : 0);
+        return { draw: p < 0.5 ? 1 : 0, arrow: p < 0.5 };
+      case 'draw':
+        this.bowAim(P, ease(p));
+        P.bodyY = -0.1;
+        return { draw: ease(p) * 1.15, arrow: true };
+      case 'skyshot':
+        this.bowAim(P, p < 0.6 ? 1 : 0);
+        P.armL[0] = -2.4;
+        P.armR[0] = -2.4;
+        P.chest[0] = -0.35;
+        P.head[0] = -0.4;
+        return { draw: p < 0.6 ? 1 : 0, arrow: p < 0.6 };
+      case 'flip':
+        P.thighL[0] = -1.3;
+        P.shinL[0] = 1.8;
+        P.thighR[0] = -1.2;
+        P.shinR[0] = 1.7;
+        P.armL[2] = 0.7;
+        P.armR[2] = -0.7;
+        return { flipX: -Math.min(1, a.t / 0.62) * TAU };
+      case 'throw':
+      case 'throwdown': {
+        const s = p < 0.45 ? 0 : easeOut((p - 0.45) / 0.3);
+        P.armR = a.anim === 'throw' ? [-2.6 + 1.9 * s, 0, -0.2] : [-1.2 + 1.2 * s, 0, -0.2];
+        P.foreR[0] = -1.0 + 0.9 * s;
+        P.chest[1] = 0.4 - 0.8 * s;
+        P.armL = [-0.9, 0, 0.3];
+        if (a.anim === 'throwdown') {
+          P.bodyY = -0.25 * s;
+          P.thighL[0] = -0.8 * s;
+          P.shinL[0] = 1.2 * s;
+          P.thighR[0] = -0.3 * s;
+          P.shinR[0] = 1.0 * s;
+        }
+        return null;
+      }
+      case 'cast':
+        P.armL = [-1.5, 0, 0.1];
+        P.foreL[0] = -0.1;
+        P.handL[0] = -1.3;
+        if (this.cls.weapon === 'staff') {
+          P.armR = [-1.2, 0, -0.1];
+          P.foreR[0] = -0.4;
+          P.handR[0] = 0.6;
+        }
+        P.chest[1] = -0.25;
+        return null;
+      case 'slamcast':
+        P.armR = [-0.9, 0, -0.1];
+        P.foreR[0] = -0.9;
+        P.handR[0] = 0.3;
+        P.armL = [-0.3, 0, 0.9];
+        P.bodyY = -0.22;
+        P.thighL[0] = -0.8;
+        P.shinL[0] = 1.3;
+        P.thighR[0] = -0.2;
+        P.shinR[0] = 1.1;
+        P.body[0] = 0.25;
+        return null;
+      case 'skycast':
+        P.armR = [-2.9, 0, -0.2];
+        P.armL = [-2.9, 0, 0.2];
+        P.foreR[0] = -0.2;
+        P.foreL[0] = -0.2;
+        P.chest[0] = -0.3;
+        P.head[0] = -0.3;
+        return null;
+      case 'stab':
+      case 'lunge':
+        P.armR = [-1.55, 0, -0.1];
+        P.foreR[0] = -0.1;
+        P.handR[0] = 1.3;
+        P.armL = [0.6, 0, 0.3];
+        P.body[0] = a.anim === 'lunge' ? 0.5 : 0.2;
+        P.thighL[0] = -0.9;
+        P.shinL[0] = 0.8;
+        P.thighR[0] = 0.6;
+        P.chest[1] = 0.4;
+        return null;
+      case 'flurry': {
+        const s = Math.sin(a.t * 38);
+        P.armR = [-1.1 - 0.5 * s, 0, -0.15];
+        P.armL = [-1.1 + 0.5 * s, 0, 0.15];
+        P.foreR[0] = -0.9 + 0.8 * Math.max(0, s);
+        P.foreL[0] = -0.9 + 0.8 * Math.max(0, -s);
+        P.handR[0] = 1.3;
+        P.handL[0] = 1.3;
+        P.chest[1] = s * 0.3;
+        return null;
+      }
+      default:
+        return null;
+    }
+  }
+
+  // Showcase for the class-select screen: idle, with a demo swing now and then.
+  showcase(dt) {
+    this.demo = true;
+    this.demoT = (this.demoT || 0) + dt;
+    if (!this.attack && this.demoT > 2.6) {
+      this.demoT = 0;
+      this.startAttack({ wish: this.heading, camYaw: this.heading });
     }
     if (this.attack) {
-      const a = this.attack;
-      const p = clamp(a.t / a.dur, 0, 1);
-      const c = COMBO[a.i];
-      const e = p < c.hitAt ? p / c.hitAt : 1;
-      if (c.swing === 2) {
-        // overhead spin slash
-        root.rotation.y = -e * Math.PI * 2;
-        armR = -1.6;
-        armRz = 0.2;
-        swordX = 1.45;
-      } else {
-        const s = c.swing;
-        armR = -1.45;
-        armRz = s * (1.3 - e * 2.6) * -1;
-        root.rotation.y = s * (0.6 - e * 1.2) * -0.5;
-        swordX = 1.45;
+      const at = this.attack;
+      at.t += dt;
+      if (!at.hit && at.t >= at.dur * at.c.hitAt) at.hit = true;
+      if (at.t >= at.dur) {
+        this.attack = at.i + 1 < this.chain.length ? { i: at.i + 1, c: this.chain[at.i + 1], t: 0, dur: this.chain[at.i + 1].dur, hit: false } : null;
       }
-      legL = 0.4;
-      legR = -0.3;
     }
-    if (this.skill && this.skill.id === 'whirl') {
-      root.rotation.y = t * 22;
-      armR = -1.5;
-      armRz = 1.2;
-      armL = -1.5;
-      swordX = 1.45;
-    } else if (this.skill && this.skill.id === 'slam') {
-      root.rotation.x = -0.4;
-      armR = -2.8;
-      armL = -2.6;
-    } else if (this.skill && this.skill.id === 'cast') {
-      armL = -1.6;
-    }
-
-    this.legL.rotation.x = legL;
-    this.legR.rotation.x = legR;
-    this.armL.rotation.x = armL;
-    this.armR.rotation.set(armR, 0, armRz);
-    // blade in line with the arm while swinging, angled forward at rest
-    this.sword.rotation.x = swordX;
-    this.cape.rotation.x = 0.15 + Math.min(1.1, hspeed * 0.08) + (this.vy > 0 ? 0 : Math.min(0.6, -this.vy * 0.04));
-
-    // hurt / invuln flicker
-    const flick = this.hurtFlash > 0 || (this.invuln > 0 && this.dashTime <= 0 && Math.floor(t * 20) % 2 === 0);
-    this.bodyMats[0].emissive.setHex(this.hurtFlash > 0 ? 0x802020 : 0x000000);
-    root.visible = !(flick && this.hurtFlash <= 0 && this.invuln > 0.1);
-
-    // shadow on ground below
-    const g = this.game.dungeon.maxHeightUnder(this.x, this.z, 0.2);
-    this.shadow.position.set(this.x, g + 0.03, this.z);
-    const hs = clamp(1 - (this.y - g) * 0.12, 0.4, 1);
-    this.shadow.scale.set(hs, hs, hs);
+    this.speed = 0;
+    this.grounded = true;
+    this.animate(dt);
   }
 }
