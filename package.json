@@ -1,0 +1,11 @@
+{
+  "name": "hacknperfect",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A browser hack-n-slash roguelike for desktop and mobile, built with three.js",
+  "type": "module",
+  "scripts": {
+    "start": "node serve.mjs 8080"
+  },
+  "license": "MIT"
+}

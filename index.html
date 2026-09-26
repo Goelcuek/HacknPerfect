@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#0b0d14" />
+    <title>Hack n Perfect</title>
+    <link rel="stylesheet" href="style.css" />
+    <script type="importmap">
+      { "imports": { "three": "./vendor/three.module.min.js" } }
+    </script>
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+    <div id="numbers"></div>
+    <div id="damageFlash"></div>
+
+    <div id="hud" class="hidden">
+      <div id="stats">
+        <div class="bar hp"><div id="hpFill"></div><span id="hpText">100 / 100</span></div>
+        <div id="dashPips"></div>
+        <div class="row">
+          <span id="floorText">Floor 1</span>
+          <span id="goldText">💰 0</span>
+          <span id="enemyText">👹 0</span>
+        </div>
+      </div>
+      <canvas id="minimap" width="160" height="160"></canvas>
+      <button id="pauseBtn" class="ui-block" data-btn="pause" aria-label="Pause">❚❚</button>
+
+      <div id="bossbar" class="hidden">
+        <div id="bossName">Dungeon Warden</div>
+        <div class="bar"><div id="bossFill"></div></div>
+      </div>
+
+      <div id="toast"></div>
+
+      <div id="itemcard" class="ui-block hidden">
+        <div id="itemHeader"></div>
+        <div id="itemCompare"></div>
+        <div class="card-buttons">
+          <button id="equipBtn">Equip <kbd class="pc">F</kbd></button>
+          <button id="salvageBtn" class="secondary">Salvage</button>
+        </div>
+      </div>
+
+      <div id="skillbar"></div>
+
+      <div id="touch">
+        <div id="joyBase"><div id="joyKnob"></div></div>
+        <div class="tbtn" id="dashBtn" data-btn="dash">💨<small>DASH</small></div>
+        <div class="tbtn" id="jumpBtn" data-btn="jump">⤒<small>JUMP</small></div>
+        <div id="attackWrap">
+          <div class="tskill" data-btn="skill0" data-dir="0"></div>
+          <div class="tskill" data-btn="skill1" data-dir="1"></div>
+          <div class="tskill" data-btn="skill2" data-dir="2"></div>
+          <div class="tskill" data-btn="skill3" data-dir="3"></div>
+          <div class="tbtn big" id="attackBtn" data-btn="attack">⚔</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="screens">
+      <div id="title" class="screen ui-block">
+        <h1>HACK<span>n</span>PERFECT</h1>
+        <p class="subtitle">Descend the dungeon. Loot everything. Don't die.</p>
+        <button id="playBtn" class="primary">▶ Play</button>
+        <p id="bestText"></p>
+        <div class="controls">
+          <div class="pc-only">
+            <b>WASD</b> move · <b>Mouse</b> camera · <b>Space</b> jump / double jump · <b>Shift</b> dash<br />
+            <b>Left click</b> attack · <b>Q E R C</b> skills · <b>F</b> equip loot · <b>Esc</b> pause
+          </div>
+          <div class="touch-only">
+            Left side: move · Right side: drag camera<br />
+            Tap <b>⚔</b> to attack · <b>Swipe ⚔</b> ↑ → ↓ ← for skills
+          </div>
+        </div>
+      </div>
+
+      <div id="upgrade" class="screen ui-block hidden">
+        <h2 id="upTitle">Floor cleared</h2>
+        <p class="subtitle">Choose a blessing</p>
+        <div id="upChoices"></div>
+        <div class="shop">
+          <span id="upGold"></span>
+          <button id="healBtn" class="secondary"></button>
+          <button id="rerollBtn" class="secondary"></button>
+        </div>
+      </div>
+
+      <div id="pause" class="screen ui-block hidden">
+        <h2>Paused</h2>
+        <div id="gear"></div>
+        <div id="statList"></div>
+        <div class="row-buttons">
+          <button id="resumeBtn" class="primary">Resume</button>
+          <button id="muteBtn" class="secondary">Sound: on</button>
+          <button id="quitBtn" class="secondary">Abandon run</button>
+        </div>
+      </div>
+
+      <div id="death" class="screen ui-block hidden">
+        <h2 class="red">You have fallen</h2>
+        <div id="deathStats"></div>
+        <button id="againBtn" class="primary">Try again</button>
+        <button id="titleBtn" class="secondary">Title</button>
+      </div>
+    </div>
+
+    <div id="rotateHint">↻ Rotate your phone for the best experience</div>
+
+    <script type="module" src="src/main.js"></script>
+  </body>
+</html>
