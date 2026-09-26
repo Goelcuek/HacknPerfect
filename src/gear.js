@@ -132,13 +132,15 @@ function bow(variant, tier, M) {
     m.quaternion.setFromUnitVectors(up, b.normalize());
     m.scale.set(1, len, 1);
   };
-  g.userData.setDraw = (d, showArrow) => {
-    nock.set(0, 0, tipTop[2] - d * 0.52);
+  g.userData.restZ = tipTop[2];
+  g.userData.setNockZ = (z, showArrow) => {
+    nock.set(0, 0, z);
     place(s1, tipTop, nock);
     place(s2, tipBot, nock);
     arrow.visible = showArrow;
     arrow.position.copy(nock);
   };
+  g.userData.setDraw = (d, showArrow) => g.userData.setNockZ(tipTop[2] - d * 0.52, showArrow);
   g.userData.setDraw(0, false);
   g.userData.ownGeos = [limbGeo];
   return g;
@@ -207,4 +209,19 @@ export function buildDropModel(item) {
     for (const k in M) M[k].dispose();
   };
   return g;
+}
+
+// Pull the bowstring to wherever the drawing hand actually is this frame.
+const _nv = new THREE.Vector3();
+export function followNock(bow, hand, drawing, showArrow) {
+  if (!drawing) {
+    bow.userData.setDraw(0, false);
+    return;
+  }
+  hand.updateWorldMatrix(true, false);
+  hand.localToWorld(_nv.set(0, -0.07, 0.02));
+  bow.updateWorldMatrix(true, false);
+  bow.worldToLocal(_nv);
+  const rest = bow.userData.restZ;
+  bow.userData.setNockZ(Math.max(rest - 0.62, Math.min(rest, _nv.z)), showArrow);
 }

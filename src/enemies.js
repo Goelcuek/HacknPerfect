@@ -4,8 +4,8 @@
 import * as THREE from 'three';
 import { clamp, angleDiff, rng } from './utils.js';
 import { sfx } from './audio.js';
-import { Rig, G, mat, part, buildHumanBody, mergeStatic } from './rig.js';
-import { buildWeapon } from './gear.js';
+import { Rig, G, mat, part, buildHumanBody, mergeStatic, bowPose } from './rig.js';
+import { buildWeapon, followNock } from './gear.js';
 
 export const ENEMY_TYPES = {
   grunt: { name: 'Goblin', hp: 34, dmg: 9, speed: 4.4, radius: 0.5, height: 1.3, range: 1.8, windup: 0.42, recover: 0.55, color: 0x6fae4a, gold: [2, 6] },
@@ -720,23 +720,14 @@ export class Enemy {
       }
     } else if (this.type === 'archer') {
       let draw = 0;
-      if (s === 'windup' || act || (s === 'chase' && this.aggro)) {
+      if (s === 'windup' || act) {
         draw = s === 'windup' ? wind : 0;
-        P.chest[1] = -0.55;
-        P.head[1] = 0.5;
-        P.armL = [-1.55, 0.55, 0];
-        P.foreL = [0, 0, 0];
-        P.armR = [-1.55 + 0.1 * draw, -0.1 - 0.5 * draw, -0.35 * draw];
-        P.foreR = [-0.4 - 1.7 * draw, 0, 0];
-        if (s === 'chase') {
-          P.armL = [-0.9, 0.3, 0.1];
-          P.armR[0] = -0.6;
-        }
+        bowPose(this.rig, P, draw, 0.03);
       } else {
-        P.armL = [-0.2 + P.armL[0] * 0.4, 0, 0.15];
-        P.foreL[0] = -0.5;
+        P.armL = [-0.3 + P.armL[0] * 0.4, 0, 0.15];
+        P.foreL[0] = -0.6;
       }
-      this.bowGear.bow.userData.setDraw(draw, s === 'windup');
+      this.archerDraw = s === 'windup';
     } else if (this.type === 'brute') {
       P.armR = [-0.35 + P.armR[0] * 0.5, 0, -0.25];
       P.armL[2] = 0.3;
@@ -836,6 +827,7 @@ export class Enemy {
       P.shinL[0] = 0.8;
     }
     rig.spring(dt, heavy ? k * 0.8 : k, 0.6, LOOSE);
+    if (this.bowGear) followNock(this.bowGear.bow, rig.j.handR, this.archerDraw, this.archerDraw);
   }
 
   // Per-species idle business while the enemy hasn't noticed the player.

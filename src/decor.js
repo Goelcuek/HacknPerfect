@@ -766,9 +766,10 @@ export function buildEnvironment(dg, quality = 'high') {
       put(b, F, G.box(T + 0.04, 0.12, 0.32), 'stone', [0, WALL_H - 0.34, 0.16], null, 1, wallTint);
       const hash = (x * 73856093) ^ (z * 19349663) ^ (dx * 83492791 + dz * 29);
       if (Math.abs(hash) % 3 === 0) {
-        put(b, F, G.box(0.46, WALL_H - 0.9, 0.2), 'stone', [-T / 2, 0.36 + (WALL_H - 0.9) / 2, 0.1], null, 1, wallTint);
-        put(b, F, G.box(0.6, 0.22, 0.3), 'stone', [-T / 2, WALL_H - 0.66, 0.15], null, 1, wallTint);
-        put(b, F, G.box(0.6, 0.3, 0.3), 'stone', [-T / 2, 0.2, 0.15], null, 1, wallTint);
+        const px = -T / 2 + 0.31; // inside this face so it never juts into an opening
+        put(b, F, G.box(0.46, WALL_H - 0.9, 0.2), 'stone', [px, 0.36 + (WALL_H - 0.9) / 2, 0.1], null, 1, wallTint);
+        put(b, F, G.box(0.6, 0.22, 0.3), 'stone', [px, WALL_H - 0.66, 0.15], null, 1, wallTint);
+        put(b, F, G.box(0.6, 0.3, 0.3), 'stone', [px, 0.2, 0.15], null, 1, wallTint);
       }
       // torches every few faces, otherwise a themed detail
       if (faceIdx % 6 === 0 && n === TILE.FLOOR) {
@@ -806,8 +807,9 @@ export function buildEnvironment(dg, quality = 'high') {
     }
     for (const [ox, oz, ax, az, wx, wz] of edges) {
       if (dg.get(ox, oz) === TILE.WALL) continue;
-      if (dg.get(ox - ax, oz - az) === TILE.WALL) column(wx, wz);
-      if (dg.get(ox + ax, oz + az) === TILE.WALL) column(wx + ax * T, wz + az * T);
+      // shift columns into the wall so they frame the opening without narrowing it
+      if (dg.get(ox - ax, oz - az) === TILE.WALL) column(wx - ax * 0.3, wz - az * 0.3);
+      if (dg.get(ox + ax, oz + az) === TILE.WALL) column(wx + ax * (T + 0.3), wz + az * (T + 0.3));
     }
   }
 

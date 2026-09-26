@@ -9,6 +9,8 @@ import { SLOTS } from './items.js';
 import { CLASSES } from './classes.js';
 import { SKILLS, MAX_SKILL_LEVEL } from './skills.js';
 import { buildHero, dressHero } from './hero.js';
+import { bowPose } from './rig.js';
+import { followNock } from './gear.js';
 import { Trail } from './effects.js';
 
 const GRAVITY = 28;
@@ -315,7 +317,8 @@ export class Player {
     }
     this.x = x;
     this.z = z;
-    this.y = Math.max(this.y, dg.maxHeightUnder(x, z, this.radius * 0.8));
+    const ground = dg.maxHeightUnder(x, z, this.radius * 0.8);
+    if (ground < 50) this.y = Math.max(this.y, ground);
   }
 
   leapSlam(ctx, o) {
@@ -896,7 +899,7 @@ export class Player {
 
     // bow string follows the draw
     const wpn = hero.weapon;
-    if (wpn && wpn.bow) wpn.bow.userData.setDraw(draw, showArrow);
+    if (wpn && wpn.bow) followNock(wpn.bow, hero.rig.j.handR, draw > 0.01 || showArrow, showArrow);
 
     // cape: two damped springs driven by speed, fall speed and turning
     if (hero.cape) {
@@ -1218,17 +1221,14 @@ export class Player {
     }
   }
 
-  bowAim(P, d) {
-    P.chest[1] = -0.55;
-    P.head[1] = 0.5;
-    P.armL = [-1.55, 0.55, 0.0];
-    P.foreL = [0, 0, 0];
-    P.handL = [0, 0, 0];
-    P.armR = [-1.55 + 0.1 * d, -0.1 - 0.5 * d, -0.35 * d];
-    P.foreR = [-0.4 - 1.7 * d, 0, 0];
-    P.handR = [-0.4, 0, 0];
-    P.thighL[0] = -0.3;
-    P.thighR[0] = 0.25;
+  // Side-on archer stance solved with IK: bow arm on the aim line, draw hand to the cheek.
+  bowAim(P, d, pitch = 0.03) {
+    bowPose(this.hero.rig, P, d, pitch);
+    P.thighL[0] = -0.25;
+    P.thighR[0] = 0.2;
+    P.thighL[2] = 0.12;
+    P.thighR[2] = -0.12;
+    P.shinL[0] = Math.max(P.shinL[0], 0.1);
   }
 
   actionPose(P, a) {
@@ -1300,18 +1300,14 @@ export class Player {
         P.shinR[0] = 1.2;
         return null;
       case 'shoot':
-        this.bowAim(P, p < 0.5 ? 1 : 0);
+        this.bowAim(P, p < 0.5 ? ease(p / 0.25) : 0);
         return { draw: p < 0.5 ? 1 : 0, arrow: p < 0.5 };
       case 'draw':
         this.bowAim(P, ease(p));
         P.bodyY = -0.1;
         return { draw: ease(p) * 1.15, arrow: true };
       case 'skyshot':
-        this.bowAim(P, p < 0.6 ? 1 : 0);
-        P.armL[0] = -2.4;
-        P.armR[0] = -2.4;
-        P.chest[0] = -0.35;
-        P.head[0] = -0.4;
+        this.bowAim(P, p < 0.6 ? ease(p / 0.3) : 0, 0.95);
         return { draw: p < 0.6 ? 1 : 0, arrow: p < 0.6 };
       case 'flip':
         P.thighL[0] = -1.3;

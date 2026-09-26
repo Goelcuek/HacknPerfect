@@ -428,3 +428,93 @@ export function buildFace(rig, m, o = {}) {
   if (o.mouth !== false) part(head, G.box(R * 0.42, R * 0.045, R * 0.05), E.mouth, [0, R * 0.52, R * 0.98], [0, 0, 0]);
   return out;
 }
+
+// ------------------------------------------------------------------- IK
+const _qa = new THREE.Quaternion();
+const _qb = new THREE.Quaternion();
+const _qc = new THREE.Quaternion();
+const _eu = new THREE.Euler();
+const _m3 = new THREE.Matrix4();
+const _vx = new THREE.Vector3();
+const _vy = new THREE.Vector3();
+const _vz = new THREE.Vector3();
+
+// Orientation whose local -Y points along `dir` and local +Z leans toward `ref`.
+function limbQuat(dir, ref, out) {
+  _vy.copy(dir).normalize().negate();
+  _vz.copy(ref).addScaledVector(_vy, -ref.dot(_vy));
+  if (_vz.lengthSq() < 1e-6) _vz.set(0, 0, 1).addScaledVector(_vy, -_vy.z);
+  _vz.normalize();
+  _vx.crossVectors(_vy, _vz).normalize();
+  _m3.makeBasis(_vx, _vy, _vz);
+  return out.setFromRotationMatrix(_m3);
+}
+const toEuler = (q, arr) => {
+  _eu.setFromQuaternion(q, 'XYZ');
+  arr[0] = _eu.x;
+  arr[1] = _eu.y;
+  arr[2] = _eu.z;
+};
+
+// Two-bone arm IK in chest space. Writes arm/fore/hand Euler targets.
+// handDir/handUp (optional) orient the hand: its -Y along handDir, +Z toward handUp.
+export function solveArm(rig, P, side, target, pole, handDir = null, handUp = null) {
+  const o = rig.o;
+  const s = side === 'L' ? 1 : -1;
+  const S = new THREE.Vector3(s * o.shoulderW, o.chestH * 0.82, 0);
+  const a = o.upper;
+  const b = o.fore;
+  const toT = target.clone().sub(S);
+  const d = Math.min(toT.length(), a + b - 0.002);
+  const n = toT.normalize();
+  const x = (a * a - b * b + d * d) / (2 * d);
+  const h = Math.sqrt(Math.max(0, a * a - x * x));
+  const perp = pole.clone().addScaledVector(n, -pole.dot(n)).normalize();
+  const E = S.clone().addScaledVector(n, x).addScaledVector(perp, h);
+  const T = S.clone().addScaledVector(n, d);
+  const qU = limbQuat(E.clone().sub(S), perp, new THREE.Quaternion());
+  const qF = limbQuat(T.clone().sub(E), perp, new THREE.Quaternion());
+  toEuler(qU, P['arm' + side]);
+  _qa.copy(qU).invert().multiply(qF);
+  toEuler(_qa, P['fore' + side]);
+  if (handDir) {
+    limbQuat(handDir, handUp || new THREE.Vector3(0, 1, 0), _qb);
+    _qc.copy(qF).invert().multiply(_qb);
+    toEuler(_qc, P['hand' + side]);
+  } else {
+    P['hand' + side][0] = P['hand' + side][1] = P['hand' + side][2] = 0;
+  }
+}
+
+// Archer's stance: torso turned side-on, bow arm extended along the aim line,
+// draw hand pulled back to the cheek. `draw` 0..1, `pitch` aims up/down.
+export function bowPose(rig, P, draw, pitch = 0.03, twist = -0.95) {
+  const o = rig.o;
+  P.hips[1] = twist * 0.35;
+  P.spine[1] = twist * 0.25;
+  P.chest[1] = twist * 0.4;
+  P.chest[0] = 0;
+  P.chest[2] = 0;
+  P.body[1] = 0;
+  P.head[1] = -twist * 0.85;
+  P.neck[1] = 0;
+  P.head[0] = -pitch * 0.6;
+  // chest-space basis from the (target) pose
+  const q = new THREE.Quaternion();
+  const step = (arr) => q.multiply(_qa.setFromEuler(_eu.set(arr[0], arr[1], arr[2], 'XYZ')));
+  step(P.body);
+  step(P.hips);
+  step(P.spine);
+  step(P.chest);
+  const inv = q.clone().invert();
+  const dir = new THREE.Vector3(0, Math.sin(pitch), Math.cos(pitch)).applyQuaternion(inv).normalize();
+  const up = new THREE.Vector3(0, 1, 0).applyQuaternion(inv).normalize();
+  const right = new THREE.Vector3().crossVectors(dir, up).normalize();
+  // anchor at the right cheek, bow grip one arrow-length ahead of it
+  const anchor = new THREE.Vector3(0, o.chestH + 0.14, 0).addScaledVector(dir, 0.1).addScaledVector(right, 0.05);
+  const drawLen = 0.56;
+  const grip = anchor.clone().addScaledVector(dir, drawLen);
+  const nock = grip.clone().addScaledVector(dir, -(0.2 + draw * (drawLen - 0.2)));
+  solveArm(rig, P, 'L', grip, up.clone().multiplyScalar(-0.3).addScaledVector(right, -0.2).add(new THREE.Vector3(1, 0, 0)), dir, up);
+  solveArm(rig, P, 'R', nock, right.clone().addScaledVector(up, 0.4).addScaledVector(dir, -0.6));
+}

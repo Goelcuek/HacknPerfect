@@ -71,7 +71,8 @@ function applyQuality(q) {
   game.setQuality(q);
   game.resize(w, h);
   if (rebuild && (game.state === 'title' || game.state === 'classSelect')) {
-    game.dungeon = null;
+    // rebuild the backdrop floor at the new detail level (loadFloor clears the old one)
+    game.loadFloor(1, true);
     game.setupBackdrop(chosenClass);
   }
   ui.setQualityLabel(q);

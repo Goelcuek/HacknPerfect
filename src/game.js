@@ -192,6 +192,8 @@ export class Game {
       this.scene.remove(this.dungeon.group);
       this.dungeon.dispose();
     }
+    // never let a previous level's meshes linger in the scene
+    for (const c of this.scene.children.slice()) if (c.userData.isLevel) this.scene.remove(c);
     for (const list of [this.enemies, this.projectiles, this.pickups, this.chests, this.pots, this.patches, this.zones, this.corpses]) {
       for (const o of list) {
         if (o.mesh) this.scene.remove(o.mesh);
@@ -209,7 +211,9 @@ export class Game {
     this.floor = n;
     const dg = new Dungeon(n, (Math.random() * 2 ** 31) | 0);
     this.dungeon = dg;
-    this.scene.add(dg.buildMeshes(this.quality));
+    const levelGroup = dg.buildMeshes(this.quality);
+    levelGroup.userData.isLevel = true;
+    this.scene.add(levelGroup);
     const th = dg.theme;
     this.scene.background = new THREE.Color(th.fog);
     this.scene.fog = new THREE.Fog(th.fog, 16, 46);
