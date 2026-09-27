@@ -1,6 +1,6 @@
 // DOM HUD, touch-control visuals, menus, loot card and minimap.
 
-import { SKILLS, MAX_SKILL_LEVEL } from './skills.js';
+import { SKILLS, MAX_SKILL_LEVEL, skillDef } from './skills.js';
 import { CLASSES, CLASS_ORDER } from './classes.js';
 import { formatStats, SLOTS, SLOT_ICON } from './items.js';
 import { TILE } from './dungeon.js';
@@ -119,11 +119,12 @@ export class UI {
     for (const off of o.offers) {
       const d = off.def;
       const el = document.createElement('button');
-      el.className = 'upcard skill';
+      const isEvo = off.kind === 'evo';
+      el.className = 'upcard skill' + (isEvo ? ' evo' : '');
       el.id = `offer-${off.id}`;
-      const badge = off.kind === 'new' ? '<span class="badge new">NEW</span>' : `<span class="badge">Lv ${off.from} → ${off.to}</span>`;
+      const badge = off.kind === 'new' ? '<span class="badge new">NEW</span>' : isEvo ? '<span class="badge evo">✦ EVOLUTION</span>' : `<span class="badge">Lv ${off.from} → ${off.to}</span>`;
       const bind = this.isTouch ? `Swipe ${DIR_ARROWS[off.slot]}` : `Key ${PC_KEYS[off.slot]}`;
-      const pips = Array.from({ length: MAX_SKILL_LEVEL }, (_, i) => `<i class="${i < off.to ? 'on' : ''}"></i>`).join('');
+      const pips = isEvo ? `<span class="evofrom">${off.base.icon} ${off.base.name} ➜</span>` : Array.from({ length: MAX_SKILL_LEVEL }, (_, i) => `<i class="${i < off.to ? 'on' : ''}"></i>`).join('');
       el.innerHTML = `${badge}<div class="icon">${d.icon}</div><div class="name">${d.name}</div><div class="lvpips">${pips}</div><div class="desc">${esc(d.desc(off.to))}</div><div class="bind">${bind} · ${d.cd(off.to).toFixed(1)}s cooldown</div>`;
       el.onclick = () => {
         sfx.ui();
@@ -137,7 +138,8 @@ export class UI {
       .map((s, i) => {
         const bind = this.isTouch ? DIR_ARROWS[i] : PC_KEYS[i];
         if (!s) return `<div class="loadslot empty"><kbd>${bind}</kbd><span>empty</span></div>`;
-        return `<div class="loadslot"><kbd>${bind}</kbd><span>${SKILLS[s.id].icon} ${SKILLS[s.id].name}</span><small>Lv ${s.level}</small></div>`;
+        const d = skillDef(s.id, s.level);
+        return `<div class="loadslot${d.evolved ? ' evo' : ''}"><kbd>${bind}</kbd><span>${d.icon} ${d.name}</span><small>${d.evolved ? 'EVO' : `Lv ${s.level}`}</small></div>`;
       })
       .join('');
 
@@ -182,10 +184,13 @@ export class UI {
       const ts = this.touchSkills[i];
       pc.el.classList.toggle('empty', !s);
       ts.el.classList.toggle('empty', !s);
-      pc.ico.textContent = s ? SKILLS[s.id].icon : '';
-      ts.ico.textContent = s ? SKILLS[s.id].icon : '';
-      pc.el.title = s ? `${SKILLS[s.id].name} (Lv ${s.level}) — ${SKILLS[s.id].desc(s.level)}` : 'Empty slot';
-      pc.pips.innerHTML = s ? '<i></i>'.repeat(s.level) : '';
+      const d = s ? skillDef(s.id, s.level) : null;
+      pc.ico.textContent = d ? d.icon : '';
+      ts.ico.textContent = d ? d.icon : '';
+      pc.el.title = d ? `${d.name} (${d.evolved ? 'Evolved' : `Lv ${s.level}`}) — ${d.desc(s.level)}` : 'Empty slot';
+      pc.pips.innerHTML = s ? (d.evolved ? '<b>✦</b>' : '<i></i>'.repeat(s.level)) : '';
+      pc.el.classList.toggle('evo', !!(d && d.evolved));
+      ts.el.classList.toggle('evo', !!(d && d.evolved));
     }
   }
 
@@ -369,8 +374,8 @@ export class UI {
       .map((s, i) => {
         const bind = this.isTouch ? DIR_ARROWS[i] : PC_KEYS[i];
         if (!s) return `<div class="loadslot empty"><kbd>${bind}</kbd><span>empty</span></div>`;
-        const d = SKILLS[s.id];
-        return `<div class="loadslot" title="${esc(d.desc(s.level))}"><kbd>${bind}</kbd><span>${d.icon} ${d.name}</span><small>Lv ${s.level}</small></div>`;
+        const d = skillDef(s.id, s.level);
+        return `<div class="loadslot${d.evolved ? ' evo' : ''}" title="${esc(d.desc(s.level))}"><kbd>${bind}</kbd><span>${d.icon} ${d.name}</span><small>${d.evolved ? 'EVO' : `Lv ${s.level}`}</small></div>`;
       })
       .join('');
     const f = p.final;

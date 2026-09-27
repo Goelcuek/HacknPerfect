@@ -7,7 +7,7 @@ import { clamp, angleDiff } from './utils.js';
 import { sfx } from './audio.js';
 import { SLOTS } from './items.js';
 import { CLASSES } from './classes.js';
-import { SKILLS, MAX_SKILL_LEVEL } from './skills.js';
+import { skillDef, EVO_LEVEL } from './skills.js';
 import { buildHero, dressHero } from './hero.js';
 import { bowPose } from './rig.js';
 import { followNock } from './gear.js';
@@ -132,7 +132,7 @@ export class Player {
     this.action = null;
     this.skillBuffer = null;
     this.buffs = {};
-    this.buff = { dmg: 0, as: 0, crit: 0, armor: 0, ms: 0, pierce: 0 };
+    this.buff = { dmg: 0, as: 0, crit: 0, armor: 0, ms: 0, pierce: 0, size: 0, ls: 0, critAll: 0, tripleShot: 0 };
     this.shield = 0;
     this.shieldT = 0;
     this.shieldEnd = null;
@@ -230,7 +230,7 @@ export class Player {
   learnSkill(id) {
     const cur = this.skills.find((k) => k && k.id === id);
     if (cur) {
-      cur.level = Math.min(MAX_SKILL_LEVEL, cur.level + 1);
+      cur.level = Math.min(EVO_LEVEL, cur.level + 1);
       return this.skills.indexOf(cur);
     }
     const slot = this.skills.indexOf(null);
@@ -242,7 +242,7 @@ export class Player {
 
   skillCooldown(slot) {
     const s = this.skills[slot];
-    return s ? SKILLS[s.id].cd(s.level) * (1 - this.final.cdr) : 1;
+    return s ? skillDef(s.id, s.level).cd(s.level) * (1 - this.final.cdr) : 1;
   }
 
   // ----------------------------------------------------------------- buffs
@@ -252,8 +252,8 @@ export class Player {
   }
 
   refreshBuffs() {
-    const b = { dmg: 0, as: 0, crit: 0, armor: 0, ms: 0, pierce: 0 };
-    for (const id in this.buffs) for (const k in this.buffs[id].mods) b[k] += this.buffs[id].mods[k];
+    const b = { dmg: 0, as: 0, crit: 0, armor: 0, ms: 0, pierce: 0, size: 0, ls: 0, critAll: 0, tripleShot: 0 };
+    for (const id in this.buffs) for (const k in this.buffs[id].mods) b[k] = (b[k] || 0) + this.buffs[id].mods[k];
     this.buff = b;
     this.updateArmor();
   }
@@ -281,7 +281,7 @@ export class Player {
     const f = this.final;
     let amount = f.damage * mult * (isSkill ? f.skillMult : 1) * (1 + this.buff.dmg);
     amount *= 0.9 + Math.random() * 0.2;
-    const crit = forceCrit || this.nextCrit || Math.random() < f.crit + this.buff.crit;
+    const crit = forceCrit || this.nextCrit || this.buff.critAll > 0 || Math.random() < f.crit + this.buff.crit;
     this.nextCrit = false;
     if (crit) amount *= f.critMult;
     return { amount, crit };
@@ -361,6 +361,7 @@ export class Player {
           if (o.stun) e.status({ stun: o.stun });
           return { ...this.rollDamage(o.dmg, true), knock: 9, launch: 6 };
         });
+        if (o.onLand) o.onLand(this.x, this.z);
         this.act({ anim: 'slamLand', dur: 0.25 });
       },
     });
@@ -632,7 +633,8 @@ export class Player {
       if (c.ranged === 'arrow' || c.ranged === 'power') {
         const power = c.ranged === 'power';
         sfx.arrow();
-        game.shoot({ from: this, heading: this.heading, speed: power ? 38 : 32, life: 0.65, kind: power ? 'bigarrow' : 'arrow', dmg: () => this.rollDamage(c.mult), knock: power ? 6 : 3, pierce: pierce + (power ? 1 : 0) });
+        const spread = this.buffMod('tripleShot') ? [-0.14, 0, 0.14] : [0];
+        for (const off of spread) game.shoot({ from: this, heading: this.heading + off, speed: power ? 38 : 32, life: 0.65, kind: power ? 'bigarrow' : 'arrow', dmg: () => this.rollDamage(c.mult), knock: power ? 6 : 3, pierce: pierce + (power ? 1 : 0) });
       } else {
         sfx.fire();
         const n = c.ranged === 'missile3' ? 3 : 1;
@@ -666,7 +668,7 @@ export class Player {
     if (!s) return true; // empty slot: drop the request
     if (this.cooldowns[idx] > 0) return true;
     if (this.action || this.dashTime > 0) return false; // busy: keep it buffered
-    const def = SKILLS[s.id];
+    const def = skillDef(s.id, s.level);
     this.cooldowns[idx] = def.cd(s.level) * (1 - this.final.cdr);
     this.attack = null;
     def.cast(this, s.level, ctx);
@@ -872,6 +874,10 @@ export class Player {
       }
     }
 
+    // Avatar of War (and similar) buffs make the hero grow
+    const size = 1 + (this.buff?.size || 0);
+    const sc = rig.scaler.scale.x + (size - rig.scaler.scale.x) * Math.min(1, dt * 6);
+    rig.scaler.scale.setScalar(sc);
     rig.body.rotation.y = wrap(rig.body.rotation.y);
     rig.body.rotation.x = wrap(rig.body.rotation.x);
     rig.spring(dt, w, 0.62, LOOSE);

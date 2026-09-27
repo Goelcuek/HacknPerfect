@@ -6,6 +6,7 @@ import { clamp, angleDiff, rng } from './utils.js';
 import { sfx } from './audio.js';
 import { Rig, G, mat, part, buildHumanBody, mergeStatic, bowPose } from './rig.js';
 import { buildWeapon, followNock } from './gear.js';
+import { applySurface, clothSurface, leatherSurface, metalSurface, skinSurface, boneSurface } from './textures.js';
 
 export const ENEMY_TYPES = {
   grunt: { name: 'Goblin', hp: 34, dmg: 9, speed: 4.4, radius: 0.5, height: 1.3, range: 1.8, windup: 0.42, recover: 0.55, color: 0x6fae4a, gold: [2, 6] },
@@ -41,6 +42,12 @@ function shared() {
   SH.hbRed = new THREE.MeshBasicMaterial({ color: 0xff4040, depthTest: false });
   SH.hbGold = new THREE.MeshBasicMaterial({ color: 0xffc94a, depthTest: false });
   SH.aura = new THREE.MeshBasicMaterial({ color: 0xffc94a, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthWrite: false });
+  applySurface(SH.leather, leatherSurface(), 1);
+  applySurface(SH.fur, clothSurface(), 1.4);
+  applySurface(SH.iron, metalSurface(), 0.7);
+  applySurface(SH.bone, boneSurface(), 1);
+  applySurface(SH.cloak, clothSurface(), 0.9);
+  applySurface(SH.bossCape, clothSurface(), 0.8);
   return SH;
 }
 const fillGeo = (() => {
@@ -119,6 +126,9 @@ export class Enemy {
     const root = new THREE.Group();
     this.bodyMat = mat(d.color, { rough: this.type === 'boss' ? 0.4 : 0.8, metal: this.type === 'boss' ? 0.45 : 0 });
     this.baseEmissive = this.elite ? 0x553300 : 0x000000;
+    if (this.type === 'archer') applySurface(this.bodyMat, boneSurface(), 1.1);
+    else if (this.type === 'boss') applySurface(this.bodyMat, metalSurface(), 0.7);
+    else if (this.type !== 'wisp') applySurface(this.bodyMat, skinSurface(), this.type === 'brute' ? 0.9 : 0.7);
     this.ownMats = [this.bodyMat];
     this.rig = null;
     const B = this.bodyMat;
@@ -269,6 +279,7 @@ export class Enemy {
     }
 
     if (this.rig) {
+      this.addDetails(this.rig, B, S);
       this.rig.scaler.scale.multiplyScalar(this.scale);
       mergeStatic(this.rig.root);
       root.add(this.rig.root);
@@ -302,6 +313,71 @@ export class Enemy {
     }
     this.mesh = root;
     root.position.set(this.x, this.y, this.z);
+  }
+
+  // Extra costume and anatomy detail per species (merged into the rig meshes).
+  addDetails(rig, B, S) {
+    const j = rig.j;
+    const o = rig.o;
+    const ch = o.chestH;
+    if (this.type === 'grunt') {
+      // scrap shoulder pad with rivets, belt pouch, bone charm, wraps, claws, top-knot
+      part(j.armL, G.hemi(0.1, 10), S.leather, [0.02, 0.01, 0], [0, 0, -0.5], [1.15, 0.8, 1.15]);
+      for (let i = 0; i < 3; i++) part(j.armL, G.sphere(0.014, 5, 4), S.iron, [0.04 + i * 0.025, 0.06 - i * 0.015, 0.06]);
+      part(j.hips, G.torus(0.19, 0.022, Math.PI * 2, 4, 14), S.leather, [0, 0.03, 0], [Math.PI / 2, 0, 0], [1, 0.72, 1]);
+      part(j.hips, G.box(0.08, 0.09, 0.05), S.leather, [0.14, -0.02, 0.1]);
+      part(j.hips, G.capsule(0.012, 0.08, 4), S.bone, [-0.12, -0.05, 0.13], [0, 0, 0.3]);
+      part(j.hips, G.sphere(0.03, 6, 5), S.bone, [-0.13, -0.11, 0.13]);
+      for (const side of ['L', 'R']) {
+        part(j['fore' + side], G.torus(0.06, 0.016, Math.PI * 2, 4, 10), S.cloak, [0, -0.08, 0], [Math.PI / 2, 0, 0]);
+        part(j['fore' + side], G.torus(0.055, 0.016, Math.PI * 2, 4, 10), S.cloak, [0, -0.14, 0], [Math.PI / 2, 0, 0]);
+        for (let i = -1; i <= 1; i++) part(j['foot' + side], G.cone(0.014, 0.05, 4), S.bone, [i * 0.03, -0.05, 0.19], [Math.PI / 2, 0, 0]);
+      }
+      part(j.head, G.cone(0.05, 0.16, 5), S.dark, [0, 0.42, -0.06], [-0.5, 0, 0]);
+      part(j.head, G.torus(0.025, 0.006, Math.PI * 2, 4, 10), S.gold, [0, 0.14, 0.27]);
+      part(j.head, G.box(0.12, 0.012, 0.02), S.dark, [0, 0.13, 0.205]);
+      if (this.elite) part(j.armR, G.sphere(0.09, 8, 6), S.bone, [-0.05, 0.04, 0], null, [1, 0.8, 1.1]);
+    } else if (this.type === 'archer') {
+      // vertebrae, pelvis, joint knobs, jaw teeth, rag belt and a short sword at the hip
+      for (let i = 0; i < 6; i++) part(j.spine, G.sphere(0.028, 6, 5), S.bone, [0, 0.02 + i * 0.045, -0.05]);
+      part(j.hips, G.torus(0.1, 0.03, Math.PI * 2, 5, 12), S.bone, [0, -0.02, 0], [Math.PI / 2 - 0.3, 0, 0], [1.1, 0.8, 1]);
+      for (const side of ['L', 'R']) {
+        part(j['fore' + side], G.sphere(0.04, 6, 5), S.bone, [0, 0, 0]);
+        part(j['shin' + side], G.sphere(0.045, 6, 5), S.bone, [0, 0, 0.015]);
+        part(j['fore' + side], G.cyl(0.012, 0.012, o.fore * 0.9, 4), S.bone, [0.025, -o.fore / 2, 0]);
+      }
+      for (let i = -2; i <= 2; i++) part(j.head, G.box(0.018, 0.022, 0.012), S.bone, [i * 0.024, 0.055, 0.12]);
+      part(j.hips, G.torus(0.15, 0.02, Math.PI * 2, 4, 14), S.cloak, [0, 0.02, 0], [Math.PI / 2, 0, 0], [1, 0.75, 1]);
+      for (let i = 0; i < 4; i++) part(j.hips, G.plane(0.07, 0.24), S.cloak, [(i - 1.5) * 0.07, -0.12, 0.11], [0.1, 0, (i - 1.5) * 0.12]);
+      const sword = new THREE.Group();
+      sword.position.set(-0.14, 0, 0.02);
+      sword.rotation.set(0.5, 0, 0.25);
+      j.hips.add(sword);
+      part(sword, G.cyl(0.03, 0.025, 0.45, 6), S.leather, [0, -0.25, 0]);
+      part(sword, G.box(0.13, 0.025, 0.035), S.iron, [0, 0, 0]);
+      part(sword, G.cyl(0.014, 0.014, 0.1, 5), S.leather, [0, 0.06, 0]);
+    } else if (this.type === 'brute') {
+      // belly button, crossed chest strap with buckle, iron bracers, knee wraps, nails, hair tuft, earring, skull belt
+      part(j.spine, G.sphere(0.02, 6, 4), S.dark, [0, o.abdomen * 0.45, 0.33]);
+      part(j.chest, G.box(0.07, 0.8, 0.03), S.leather, [0, ch * 0.45, 0.02], [0, 0, 0.75], [1, 1, 13]);
+      part(j.chest, G.box(0.1, 0.1, 0.04), S.iron, [0.02, ch * 0.5, 0.3]);
+      for (const side of ['L', 'R']) {
+        part(j['fore' + side], G.cyl(0.13, 0.12, 0.2, 10), S.iron, [0, -o.fore * 0.6, 0]);
+        for (let i = 0; i < 4; i++) part(j['fore' + side], G.cone(0.02, 0.07, 4), S.iron, [Math.cos(i * 1.57) * 0.13, -o.fore * 0.6, Math.sin(i * 1.57) * 0.13], [Math.sin(i * 1.57) * 1.5, 0, -Math.cos(i * 1.57) * 1.5]);
+        part(j['shin' + side], G.torus(0.12, 0.025, Math.PI * 2, 4, 12), S.fur, [0, -0.02, 0], [Math.PI / 2, 0, 0]);
+        for (let i = -1; i <= 1; i++) part(j['foot' + side], G.box(0.035, 0.02, 0.03), S.bone, [i * 0.045, -0.04, 0.2]);
+      }
+      part(j.head, G.cone(0.05, 0.14, 5), S.dark, [0, 0.3, -0.02], [-0.3, 0, 0]);
+      part(j.head, G.torus(0.03, 0.008, Math.PI * 2, 4, 10), S.gold, [0.16, 0.09, 0]);
+      for (let i = 0; i < 3; i++) part(j.hips, G.sphere(0.06, 8, 6), S.bone, [(i - 1) * 0.18, 0.0, 0.3], null, [1, 0.9, 1.1]);
+    } else if (this.type === 'boss') {
+      // glowing runes on the breastplate, belt skulls, hanging chains, gauntlet spikes
+      for (let i = 0; i < 5; i++) part(j.chest, G.box(0.03 + (i % 2) * 0.05, 0.05 + ((i + 1) % 2) * 0.05, 0.02), S.redEye, [(i - 2) * 0.07, ch * (0.35 + (i % 3) * 0.12), 0.22]);
+      part(j.hips, G.torus(0.26, 0.035, Math.PI * 2, 5, 16), S.iron, [0, 0.03, 0], [Math.PI / 2, 0, 0], [1, 0.8, 1]);
+      for (let i = 0; i < 3; i++) part(j.hips, G.sphere(0.06, 8, 6), S.bone, [(i - 1) * 0.16, -0.02, 0.24]);
+      for (const x of [-0.2, 0.2]) for (let k = 0; k < 6; k++) part(j.hips, G.torus(0.035, 0.01, Math.PI * 2, 4, 8), S.iron, [x, -0.05 - k * 0.06, 0.2], [0, k % 2 ? Math.PI / 2 : 0, Math.PI / 2]);
+      for (const side of ['L', 'R']) for (let k = 0; k < 3; k++) part(j['fore' + side], G.cone(0.025, 0.1, 4), S.dark, [0, -0.1 - k * 0.07, -0.08], [-Math.PI / 2, 0, 0]);
+    }
   }
 
   // --------------------------------------------------------------- update

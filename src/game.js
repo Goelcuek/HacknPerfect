@@ -8,7 +8,7 @@ import { Player } from './player.js';
 import { Enemy, ENEMY_TYPES } from './enemies.js';
 import { Effects } from './effects.js';
 import { generateItem, rollBlessings, itemScore, RARITIES } from './items.js';
-import { SKILLS, MAX_SKILL_LEVEL } from './skills.js';
+import { SKILLS, MAX_SKILL_LEVEL, skillDef } from './skills.js';
 import { CLASSES } from './classes.js';
 import { buildDropModel } from './gear.js';
 import { G, mat } from './rig.js';
@@ -519,6 +519,7 @@ export class Game {
       explodeAtEnd: o.explodeAtEnd,
       onHit: o.onHit,
       tickDmg: o.tickDmg,
+      pull: o.pull || 0,
       tickT: 0,
       spin: 0,
     };
@@ -630,6 +631,11 @@ export class Game {
     for (let i = this.zones.length - 1; i >= 0; i--) {
       const z = this.zones[i];
       z.t += dt;
+      if (z.follow) {
+        z.x = z.follow.x;
+        z.z = z.follow.z;
+        z.mesh.position.set(z.x, 0.05, z.z);
+      }
       let done = z.t >= z.life + z.delay;
       if (z.t >= z.delay) {
         if (!z.started) {
@@ -668,6 +674,15 @@ export class Game {
 
   lightning(pts, color) {
     this.effects.lightning(pts, color);
+  }
+
+  // Bolt from the sky onto a point, damaging around it.
+  skyStrike(x, z, r, hitFn, color = 0xaad4ff) {
+    this.effects.lightning([[x + (Math.random() - 0.5) * 2, 11, z + (Math.random() - 0.5) * 2], [x, 0.1, z]], color);
+    this.effects.ring(x, z, r, color, 0.3);
+    this.effects.burst(x, 0.3, z, color, 12, 6, 0.12, 0.4);
+    this.effects.shake(0.12);
+    this.hitEnemiesInRadius(x, z, r, hitFn);
   }
 
   // Ground shockwave: hurts the player only if they are on the ground — jump over it!
@@ -771,7 +786,7 @@ export class Game {
       if (hit.crit) sfx.crit();
       else sfx.hit();
       if (hit.crit) this.hitStop(0.035);
-      if (p.final.lifesteal > 0) p.heal(amount * p.final.lifesteal, false);
+      if (p.final.lifesteal + p.buff.ls > 0) p.heal(amount * (p.final.lifesteal + p.buff.ls), false);
     }
     this.effects.damageNumber(e.x, e.y + e.height + 0.3, e.z, String(amount), hit.crit ? 'crit' : hit.dot === 'poison' ? 'poison' : hit.silent ? 'dot' : '');
     if (e.hp <= 0) this.killEnemy(e, fromX, fromZ);
@@ -1040,6 +1055,18 @@ export class Game {
         } else if (pr.kind === 'knife') pr.mesh.children.forEach((c) => (c.rotation.y += dt * 25));
 
         if (pr.tickDmg) {
+          if (pr.pull) {
+            for (const e of this.enemies) {
+              if (!e.alive || e.def.boss) continue;
+              const dx = pr.x - e.x;
+              const dz = pr.z - e.z;
+              const d = Math.hypot(dx, dz);
+              if (d < pr.pull && d > 0.3) {
+                e.kx += (dx / d) * 30 * dt;
+                e.kz += (dz / d) * 30 * dt;
+              }
+            }
+          }
           pr.tickT -= dt;
           if (pr.tickT <= 0) {
             pr.tickT = 0.25;
@@ -1241,26 +1268,31 @@ export class Game {
     this.offerRewards(false);
   }
 
-  // Skill choices: a new skill (while a swipe slot is free) or a level-up.
+  // Skill choices: a new skill (while a swipe slot is free), a level-up, or
+  // an evolution for a skill that has reached level 5.
   skillOffers(first) {
     const p = this.player;
     const pool = p.cls.skills;
     const free = p.skills.includes(null);
     const news = free ? pool.filter((id) => !p.skillLevel(id)) : [];
     const ups = p.skills.filter((s) => s && s.level < MAX_SKILL_LEVEL).map((s) => s.id);
+    const evos = p.skills.filter((s) => s && s.level === MAX_SKILL_LEVEL && SKILLS[s.id].evo).map((s) => s.id);
     const mk = (id) => {
       const lv = p.skillLevel(id);
-      return { id, def: SKILLS[id], kind: lv ? 'up' : 'new', from: lv, to: lv + 1, slot: lv ? p.skills.findIndex((s) => s && s.id === id) : p.skills.indexOf(null) };
+      const kind = lv === MAX_SKILL_LEVEL ? 'evo' : lv ? 'up' : 'new';
+      return { id, def: skillDef(id, lv + 1), base: SKILLS[id], kind, from: lv, to: lv + 1, slot: lv ? p.skills.findIndex((s) => s && s.id === id) : p.skills.indexOf(null) };
     };
     if (first) return news.map(mk);
     shuffle(news);
     shuffle(ups);
+    shuffle(evos);
     const out = [];
+    if (evos.length) out.push(evos.shift());
     if (news.length) out.push(news.shift());
     if (ups.length) out.push(ups.shift());
-    const rest = shuffle([...news, ...ups]);
+    const rest = shuffle([...news, ...ups, ...evos]);
     while (out.length < 3 && rest.length) out.push(rest.shift());
-    return shuffle(out).map(mk);
+    return shuffle(out.slice(0, 3)).map(mk);
   }
 
   offerRewards(first, keep = null) {
@@ -1297,7 +1329,8 @@ export class Game {
       onPick: (o) => {
         const slot = p.learnSkill(o.id);
         sfx.pickup();
-        this.ui.toast(o.kind === 'new' ? `Learned ${o.def.name}` : `${o.def.name} → Lv ${o.to}`, 1.6);
+        this.ui.toast(o.kind === 'new' ? `Learned ${o.def.name}` : o.kind === 'evo' ? `✦ ${o.base.name} evolved into ${o.def.name}! ✦` : `${o.def.name} → Lv ${o.to}`, 2.2, o.kind === 'evo' ? '#ffcf5a' : null);
+        if (o.kind === 'evo') sfx.portal();
         void slot;
         proceed();
       },

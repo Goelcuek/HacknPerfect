@@ -983,3 +983,52 @@ button.small {
   padding: 6px 14px;
   font-size: 13px;
 }
+
+/* skill evolutions */
+.upcard.evo {
+  border-color: #ffcf5a;
+  background: radial-gradient(ellipse at 50% 0%, rgba(255, 190, 80, 0.28), transparent 70%), linear-gradient(#2a2130, #17131f);
+  box-shadow: 0 0 22px rgba(255, 190, 80, 0.35), inset 0 0 18px rgba(255, 207, 90, 0.12);
+  animation: evoGlow 1.6s ease-in-out infinite alternate;
+}
+.upcard.evo .name {
+  color: #ffd87a;
+  letter-spacing: 0.5px;
+}
+.upcard.evo .icon {
+  filter: drop-shadow(0 0 10px rgba(255, 190, 80, 0.8));
+}
+@keyframes evoGlow {
+  from {
+    box-shadow: 0 0 14px rgba(255, 190, 80, 0.25);
+  }
+  to {
+    box-shadow: 0 0 30px rgba(255, 190, 80, 0.55);
+  }
+}
+.badge.evo {
+  background: linear-gradient(90deg, #ffcf5a, #ff8a3d);
+  color: #2a1200;
+}
+.evofrom {
+  font-size: 11px;
+  color: var(--muted);
+}
+.loadslot.evo {
+  border-color: #ffcf5a;
+  box-shadow: 0 0 8px rgba(255, 207, 90, 0.35);
+}
+.skillslot.evo,
+.tskill.evo {
+  border-color: #ffcf5a;
+  box-shadow: 0 0 12px rgba(255, 190, 80, 0.55);
+}
+.skillslot .pips b {
+  color: #ffcf5a;
+  font-size: 10px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .upcard.evo {
+    animation: none;
+  }
+}

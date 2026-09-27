@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { Rig, G, mat, part, buildHumanBody, buildFace, mergeStatic } from './rig.js';
 import { CLASSES } from './classes.js';
 import { buildWeapon } from './gear.js';
+import { applySurface, clothSurface, leatherSurface, metalSurface, skinSurface } from './textures.js';
 
 const BODY = {
   knight: { rig: { shoulderW: 0.27 }, body: { torsoW: 0.4, torsoD: 0.24, limbR: 0.077, legR: 0.09 } },
@@ -37,6 +38,12 @@ export function buildHero(clsId) {
     dark: mat(0x1c1c22, { rough: 0.8 }),
     cape: mat(clsId === 'knight' ? 0x9a2a2a : clsId === 'mage' ? 0x3a2560 : clsId === 'ranger' ? 0x3a4a2a : 0x8a2a2a, { side: THREE.DoubleSide }),
   };
+  // fine surface detail: weave, grain, brushed metal, skin
+  for (const k of ['cloth', 'cloth2', 'cape']) applySurface(mats[k], clothSurface(), 0.7);
+  for (const k of ['leather', 'boots']) applySurface(mats[k], leatherSurface(), 0.9);
+  for (const k of ['metal', 'trim']) applySurface(mats[k], metalSurface(), 0.6);
+  applySurface(mats.skin, skinSurface(), 0.35);
+  mats.skin.roughness = 1;
   mats.brow = mats.hair;
   mats.glove = clsId === 'mage' ? mats.skin : mats.leather;
   const parts = buildHumanBody(rig, { skin: mats.skin, cloth: mats.cloth, cloth2: mats.cloth2, boots: mats.boots, glove: mats.glove, sole: (mats.sole = mat(0x2a2018, { rough: 0.95 })) }, { headR: HEAD_R, ...spec.body });

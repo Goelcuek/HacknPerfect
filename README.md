@@ -48,6 +48,22 @@ duration or extra effects).
 
 Skills fill the swipe directions in order: first ↑ (`Q`), then → (`E`), ↓ (`R`), ← (`C`).
 
+### Evolutions
+
+Once a skill reaches level 5, later rewards can offer its **evolution** (gold ✦ cards). An evolved
+skill is far stronger and gains new effects:
+
+| Class  | Evolutions                                                                                                  |
+| ------ | ----------------------------------------------------------------------------------------------------------- |
+| Knight | Cataclysm, Blade Tempest, Juggernaut, Avatar of War, Divine Bulwark, World Splitter                         |
+| Ranger | Storm of Arrows, Arrow Monsoon, Dragon Lance, Phantom Vault, Minefield, Eagle Eye                           |
+| Mage   | Inferno Barrage, Absolute Zero, Thunder God, Armageddon, Rift Walk, Singularity                             |
+| Rogue  | Death's Dance, Blade Storm, Plague, Thousand Cuts, Shadow Realm, Reaper                                     |
+
+Examples: Cataclysm adds aftershock quake rings and burning ground; Thunder God calls lightning
+from the sky; Singularity drags enemies into the orb; Arrow Monsoon follows you around; Reaper
+chains dashes between targets.
+
 ## Controls
 
 | Action        | PC                          | Mobile                                   |
@@ -83,6 +99,12 @@ normal maps are generated on startup, and each floor is dressed with themed deta
 cornices, pilasters and door columns, banners, bookshelves, skull niches, chains, cobwebs, moss and
 vines, lava cracks, crystals, statues, sarcophagi, altars, braziers, forges, barrels and crates,
 flickering torch and candle flames, drifting dust/spores/embers and light shafts.
+
+Walls are built stone by stone: uneven capstones, jutting blocks, corner quoins, timber framing,
+with world-space texturing, baked ambient occlusion where walls meet the floor, soot above torches
+and grime. Characters, gear and monsters use procedural cloth, leather, metal, skin and bone
+surface maps, and monsters carry extra detail (rivets, trinkets, vertebrae, spiked bracers, glowing
+boss runes and chains).
 
 Characters use a jointed rig driven by damped springs: stride-matched walk/run cycles, weight
 shift, breathing, blinking, head tracking, lean into turns and acceleration, landing squash,

@@ -7,7 +7,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { G } from './rig.js';
-import { brickTextures, flagstoneTextures, woodTextures, rugTexture, glowTexture, cobwebTexture } from './textures.js';
+import { brickTextures, flagstoneTextures, woodTextures, rugTexture, glowTexture, cobwebTexture, grimeTexture } from './textures.js';
 import { makeRng } from './utils.js';
 import { T, WALL_H, BLOCK_H, TILE } from './tiles.js';
 
@@ -83,6 +83,121 @@ function put(b, F, geo, key, p = [0, 0, 0], r = null, s = 1, color) {
   b.add(geo, key, _w, color, F.x, F.z);
 }
 
+// ---------------------------------------------------------- world shading
+// Patch a standard material so its textures map by world position (no visible
+// per-tile repetition), large-scale grime breaks up the pattern, and a baked
+// ambient-occlusion map darkens floors near walls and the bases of walls.
+function worldify(material, env, o = {}) {
+  const scale = o.scale ?? 0.5;
+  material.onBeforeCompile = (sh) => {
+    sh.uniforms.uAO = { value: env.aoTex };
+    sh.uniforms.uAOSize = { value: env.aoSize };
+    sh.uniforms.uGrime = { value: env.grime };
+    sh.uniforms.uTint = { value: env.grimeTint };
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;\nvarying vec3 vWN;')
+      .replace(
+        '#include <uv_vertex>',
+        `#include <uv_vertex>
+        #ifdef USE_INSTANCING
+          mat4 wm = modelMatrix * instanceMatrix;
+        #else
+          mat4 wm = modelMatrix;
+        #endif
+        vec4 wp4 = wm * vec4(position, 1.0);
+        vWPos = wp4.xyz;
+        vWN = normalize(mat3(wm) * normal);
+        vec2 wuv = abs(vWN.y) > 0.5 ? wp4.xz : (abs(vWN.x) > 0.5 ? vec2(wp4.z, wp4.y) : vec2(wp4.x, wp4.y));
+        wuv *= ${scale.toFixed(3)};
+        #ifdef USE_MAP
+          vMapUv = wuv;
+        #endif
+        #ifdef USE_NORMALMAP
+          vNormalMapUv = wuv;
+        #endif
+        #ifdef USE_ROUGHNESSMAP
+          vRoughnessMapUv = wuv;
+        #endif`,
+      );
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;\nvarying vec3 vWN;\nuniform sampler2D uAO;\nuniform vec2 uAOSize;\nuniform sampler2D uGrime;\nuniform vec3 uTint;')
+      .replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+        float gA = texture2D(uGrime, vWPos.xz * 0.035 + vWPos.y * 0.015).r;
+        float gB = texture2D(uGrime, vWPos.xz * 0.11 + vec2(vWPos.y * 0.08, 0.3)).r;
+        diffuseColor.rgb *= mix(0.72, 1.12, gA) * mix(0.9, 1.05, gB);
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * uTint, smoothstep(0.55, 0.85, gA) * (1.0 - smoothstep(0.3, 2.5, vWPos.y)));
+        // occlusion sampled just in front of the surface
+        vec2 aoP = (vWPos.xz + vWN.xz * 0.6) / uAOSize;
+        float ao = texture2D(uAO, aoP).r;
+        float low = 1.0 - smoothstep(0.0, 2.2, vWPos.y);
+        diffuseColor.rgb *= mix(1.0, mix(0.38, 1.0, ao), max(low, step(0.9, vWN.y)));
+        // soot toward the top of walls
+        diffuseColor.rgb *= 1.0 - smoothstep(2.6, 4.2, vWPos.y) * 0.3 * (1.0 - abs(vWN.y));`,
+      );
+  };
+  material.customProgramCacheKey = () => 'world' + scale;
+  return material;
+}
+
+// Blurred occupancy map of the level: 1 = open floor, 0 = wall.
+function bakeAO(dg) {
+  const R = 4;
+  const W = dg.w * R;
+  const H = dg.h * R;
+  let a = new Float32Array(W * H);
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++) {
+      const t = dg.get(Math.floor(x / R), Math.floor(y / R));
+      a[y * W + x] = t === TILE.WALL || t === TILE.PILLAR ? 0 : t === TILE.PROP ? 0.35 : 1;
+    }
+  const blur = (src, rad) => {
+    const tmp = new Float32Array(W * H);
+    const out = new Float32Array(W * H);
+    for (let y = 0; y < H; y++)
+      for (let x = 0; x < W; x++) {
+        let s = 0;
+        let n = 0;
+        for (let k = -rad; k <= rad; k++) {
+          const xx = x + k;
+          if (xx < 0 || xx >= W) continue;
+          s += src[y * W + xx];
+          n++;
+        }
+        tmp[y * W + x] = s / n;
+      }
+    for (let y = 0; y < H; y++)
+      for (let x = 0; x < W; x++) {
+        let s = 0;
+        let n = 0;
+        for (let k = -rad; k <= rad; k++) {
+          const yy = y + k;
+          if (yy < 0 || yy >= H) continue;
+          s += tmp[yy * W + x];
+          n++;
+        }
+        out[y * W + x] = s / n;
+      }
+    return out;
+  };
+  a = blur(blur(a, 3), 2);
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d');
+  const img = g.createImageData(W, H);
+  for (let i = 0; i < W * H; i++) {
+    const v = Math.min(1, a[i] * 1.25) * 255;
+    img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = v;
+    img.data[i * 4 + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(c);
+  tex.flipY = false;
+  return tex;
+}
+
 // ----------------------------------------------------------------- materials
 function makeMaterials(theme) {
   const bt = brickTextures();
@@ -109,7 +224,7 @@ function makeMaterials(theme) {
     coal: std({ color: 0x2a1a14, emissive: 0xff3a00, emissiveIntensity: 0.8, roughness: 1 }),
     web: new THREE.MeshBasicMaterial({ map: cobwebTexture(), transparent: true, depthWrite: false, side: THREE.DoubleSide, opacity: 0.75 }),
     rune: new THREE.MeshBasicMaterial({ color: accent, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false, vertexColors: true }),
-    shaft: new THREE.MeshBasicMaterial({ color: accent.clone().lerp(new THREE.Color(0xffffff), 0.6), transparent: true, opacity: 0.022, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
+    shaft: new THREE.MeshBasicMaterial({ color: accent.clone().lerp(new THREE.Color(0xffffff), 0.6), transparent: true, opacity: 0.011, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
   };
 }
 
@@ -696,19 +811,25 @@ export function buildEnvironment(dg, quality = 'high') {
         if (t === TILE.PILLAR) pillarTiles.push([x, z]);
       }
     }
-  const surf = (tex, o = {}) => new THREE.MeshStandardMaterial({ map: tex.map, normalMap: tex.normalMap, roughnessMap: tex.roughnessMap, roughness: 1, ...o });
+  const shadeEnv = {
+    aoTex: bakeAO(dg),
+    aoSize: new THREE.Vector2(W * T, H * T),
+    grime: grimeTexture(),
+    grimeTint: new THREE.Color(th.id === 'moss' ? 0x6a9a4a : th.id === 'ember' ? 0x5a3020 : th.id === 'void' ? 0x6a5a9a : 0x6a6a5a),
+  };
+  const surf = (tex, o = {}, scale = 0.5) => worldify(new THREE.MeshStandardMaterial({ map: tex.map, normalMap: tex.normalMap, roughnessMap: tex.roughnessMap, roughness: 1, normalScale: new THREE.Vector2(1.3, 1.3), ...o }), shadeEnv, { scale });
   const bt = brickTextures();
   const ft = flagstoneTextures();
   const wt = woodTextures();
   mats.floorI = surf(ft);
-  mats.woodI = surf(wt);
+  mats.woodI = surf(wt, {}, 0.5);
   mats.wallI = surf(bt);
   mats.pillarI = surf(bt);
   const makeInst = (geo, material, list, y, jitter, baseColor, cast = false) => {
     if (!list.length) return null;
     const mesh = new THREE.InstancedMesh(geo, material, list.length);
     list.forEach(([x, z], i) => {
-      m4.makeTranslation((x + 0.5) * T, y, (z + 0.5) * T);
+      m4.makeTranslation((x + 0.5) * T, y + (geo.userData.rot ? (r.next() - 0.5) * 0.025 : 0), (z + 0.5) * T);
       if (geo.userData.rot) m4.multiply(new THREE.Matrix4().makeRotationY(((x * 7 + z * 13) % 4) * (Math.PI / 2)));
       mesh.setMatrixAt(i, m4);
       color.setHex(baseColor).offsetHSL(0, 0, (r.next() - 0.5) * jitter);
@@ -734,8 +855,18 @@ export function buildEnvironment(dg, quality = 'high') {
   makeInst(blockGeo, mats.woodI, blockTiles, BLOCK_H / 2, 0.1, 0xa08060, true);
   const pillarGeo = new THREE.CylinderGeometry(T * 0.36, T * 0.4, WALL_H, 12);
   makeInst(pillarGeo, mats.pillarI, pillarTiles, WALL_H / 2, 0.08, th.wall, true);
-  const capGeo = new THREE.BoxGeometry(T * 1.02, 0.15, T * 1.02);
-  makeInst(capGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 }), wallTiles, WALL_H + 0.07, 0.05, new THREE.Color(th.wall).offsetHSL(0, 0, 0.06).getHex());
+  // broken, uneven wall tops: a few capstones per tile at varied heights
+  const capTint = new THREE.Color(th.wall).offsetHSL(0, 0, 0.04).getHex();
+  for (const [x, z] of wallTiles) {
+    const F = frame((x + 0.5) * T, WALL_H, (z + 0.5) * T, 0);
+    const k = (x * 31 + z * 17) % 5;
+    for (let i = 0; i < 2; i++)
+      for (let j = 0; j < 2; j++) {
+        const hh = 0.08 + ((k + i * 2 + j * 3) % 4) * 0.09 + r.next() * 0.05;
+        put(b, F, G.box(T / 2 + 0.02, hh * 2, T / 2 + 0.02), 'stone', [(i - 0.5) * (T / 2), hh - 0.02, (j - 0.5) * (T / 2)], [0, 0, (r.next() - 0.5) * 0.06], 1, capTint);
+      }
+    if (r.next() < 0.25) put(b, F, G.dodeca(0.25 + r.next() * 0.2), 'stone', [(r.next() - 0.5) * 1.2, 0.35, (r.next() - 0.5) * 1.2], [r.next(), r.next(), 0], [1, 0.6, 1], capTint);
+  }
   // crate trims and pillar bases/capitals
   for (const [x, z] of blockTiles) {
     const F = frame((x + 0.5) * T, 0, (z + 0.5) * T, 0);
@@ -770,6 +901,29 @@ export function buildEnvironment(dg, quality = 'high') {
         put(b, F, G.box(0.46, WALL_H - 0.9, 0.2), 'stone', [px, 0.36 + (WALL_H - 0.9) / 2, 0.1], null, 1, wallTint);
         put(b, F, G.box(0.6, 0.22, 0.3), 'stone', [px, WALL_H - 0.66, 0.15], null, 1, wallTint);
         put(b, F, G.box(0.6, 0.3, 0.3), 'stone', [px, 0.2, 0.15], null, 1, wallTint);
+      }
+      // stones jutting out of the brickwork, aligned to the courses
+      const nStones = 2 + (Math.abs(hash) % 4);
+      for (let k = 0; k < nStones; k++) {
+        const course = 2 + Math.floor(r.next() * 12);
+        const w = 0.3 + r.next() * 0.35;
+        put(b, F, G.box(w, 0.22, 0.12), 'stone', [(r.next() - 0.5) * (T - w - 0.1), course * 0.25 + 0.125, 0.03 + r.next() * 0.03], [0, 0, (r.next() - 0.5) * 0.04], 1, new THREE.Color(wallTint).offsetHSL(0, 0, (r.next() - 0.5) * 0.12).getHex());
+      }
+      // quoins where the wall turns an outside corner
+      for (const side of [-1, 1]) {
+        // neighbour along the wall on this side (local +x is world (dz, -dx))
+        const nb = dg.get(x + side * dz, z - side * dx);
+        if (nb !== TILE.WALL && nb !== TILE.PILLAR) {
+          const lx = side * (T / 2 - 0.2);
+          for (let q = 0; q < 7; q++) put(b, F, G.box(q % 2 ? 0.34 : 0.5, 0.46, 0.14), 'stone', [lx + (q % 2 ? side * 0.08 : 0), 0.5 + q * 0.5, 0.05], null, 1, new THREE.Color(wallTint).offsetHSL(0, 0, 0.05 - (q % 2) * 0.05).getHex());
+        }
+      }
+      // timber framing in some rooms and corridors
+      if (th.id !== 'void' && Math.abs(hash >> 3) % 7 === 0 && n === TILE.FLOOR) {
+        put(b, F, G.box(0.26, WALL_H - 0.5, 0.2), 'wood', [0.62, (WALL_H - 0.5) / 2, 0.1], null, 1, 0x8a6a4a);
+        put(b, F, G.box(T + 0.02, 0.24, 0.2), 'wood', [0, WALL_H - 0.75, 0.1], null, 1, 0x8a6a4a);
+        put(b, F, G.box(0.14, 1.3, 0.14), 'wood', [0.2, WALL_H - 1.25, 0.12], [0, 0, -0.75], 1, 0x7a5a3a);
+        for (const y of [1.2, WALL_H - 0.75]) put(b, F, G.sphere(0.035, 6, 4), 'metal', [0.62, y, 0.21], null, 1, 0x404048);
       }
       // torches every few faces, otherwise a themed detail
       if (faceIdx % 6 === 0 && n === TILE.FLOOR) {
@@ -909,6 +1063,9 @@ export function buildEnvironment(dg, quality = 'high') {
     if (pb) pb(b, fires, F, makeRng(pr.tx * 991 + pr.tz * 37), glows, th);
   }
 
+  worldify(mats.stone, shadeEnv, { scale: 0.5 });
+  worldify(mats.brick, shadeEnv, { scale: 0.5 });
+  group.userData.aoTex = shadeEnv.aoTex;
   const casters = new Set(quality === 'high' ? ['wood', 'metal', 'plain', 'bone', 'gold', 'crystal', 'fungus', 'wax'] : []);
   b.build(mats, group, casters);
 
@@ -953,6 +1110,7 @@ export function buildEnvironment(dg, quality = 'high') {
       }
     },
     dispose() {
+      shadeEnv.aoTex.dispose();
       for (const m of materials) m.dispose();
       for (const m of extras.mats) m.dispose();
       if (motes) motes.material.dispose();

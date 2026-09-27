@@ -586,3 +586,729 @@ export const SKILLS = {
 
 // Class skill pools are listed in classes.js; this attaches the id to each def.
 for (const id in SKILLS) SKILLS[id].id = id;
+
+// ================================================================ EVOLUTIONS
+// A level-5 skill can evolve once (level 6): a new name, far more power and
+// new effects. skillDef(id, level) returns whichever form applies.
+export const EVO_LEVEL = MAX_SKILL_LEVEL + 1;
+
+export function skillDef(id, level = 1) {
+  const base = SKILLS[id];
+  return level >= EVO_LEVEL && base.evo ? base.evo : base;
+}
+
+const evo = (id, o) => {
+  SKILLS[id].evo = { ...o, id, evolved: true, base: id };
+};
+
+// helpers
+const nearest = (g, x, z, range, skip) => {
+  let best = null;
+  let bd = range;
+  for (const e of g.enemies) {
+    if (!e.alive || (skip && skip.has(e))) continue;
+    const d = Math.hypot(e.x - x, e.z - z);
+    if (d < bd) {
+      bd = d;
+      best = e;
+    }
+  }
+  return best;
+};
+
+// ------------------------------------------------------------------ KNIGHT
+evo('slam', {
+  name: 'Cataclysm',
+  icon: '🌋',
+  cd: () => 6,
+  desc: () => 'Crash down for 500% damage in 5.5m, stunning for 2s, then send out two more quake rings and leave the ground burning.',
+  cast(p, lv, ctx) {
+    const g = p.game;
+    p.leapSlam(ctx, {
+      dmg: 5,
+      radius: 5.5,
+      stun: 2,
+      onLand: (x, z) => {
+        g.effects.shake(0.9);
+        for (let i = 0; i < 8; i++) g.spawnFirePatch(x + Math.cos(i * 0.8) * 3, z + Math.sin(i * 0.8) * 3);
+        [7.5, 10].forEach((R, i) =>
+          g.schedule(0.2 + i * 0.22, () => {
+            g.effects.ring(x, z, R, 0xff7a2e, 0.45);
+            g.effects.spikes(x, z, 0x6a5040, R * 0.6);
+            sfx.slam();
+            g.hitEnemiesInRadius(x, z, R, () => ({ ...p.rollDamage(2, true), knock: 8, launch: 5 }));
+          }),
+        );
+      },
+    });
+  },
+});
+
+evo('whirl', {
+  name: 'Blade Tempest',
+  icon: '🌪️',
+  cd: () => 8,
+  desc: () => 'A 4s storm of steel at full speed: 90% damage nine times a second, pulls enemies in and flings spectral blades outward.',
+  cast(p) {
+    const g = p.game;
+    const R = 3.4 * p.mods.reach;
+    p.act({
+      anim: 'spin',
+      dur: 4,
+      move: 1,
+      tick: 0,
+      volley: 0,
+      update(dt, a) {
+        a.tick -= dt;
+        a.volley -= dt;
+        if (Math.random() < 0.6) g.effects.puff(p.x + (Math.random() - 0.5) * R, p.y + 0.8, p.z + (Math.random() - 0.5) * R, 0x9be7ff, 0.25, 0.3);
+        if (a.volley <= 0) {
+          a.volley = 0.5;
+          for (let i = 0; i < 8; i++) g.shoot({ from: p, heading: a.t * 3 + (i / 8) * Math.PI * 2, speed: 18, life: 0.5, kind: 'knife', dmg: () => p.rollDamage(0.8, true), knock: 3, pierce: 2 });
+        }
+        if (a.tick > 0) return;
+        a.tick = 0.11;
+        sfx.swing();
+        g.effects.slash(p.x, p.y + 0.9, p.z, p.heading + a.t * 20, R, 0x9be7ff, Math.PI * 1.99);
+        g.hitEnemiesInRadius(p.x, p.z, R, (e) => {
+          const dx = p.x - e.x;
+          const dz = p.z - e.z;
+          const d = Math.hypot(dx, dz) || 1;
+          e.kx += (dx / d) * 5;
+          e.kz += (dz / d) * 5;
+          return { ...p.rollDamage(0.9, true), knock: 0 };
+        });
+      },
+    });
+  },
+});
+
+evo('charge', {
+  name: 'Juggernaut',
+  icon: '🦏',
+  cd: () => 6,
+  desc: () => 'An unstoppable 16m rampage: 300% damage, 2.5s stun, a trail of erupting stone and a 5m shockwave where you stop.',
+  cast(p, lv, ctx) {
+    const g = p.game;
+    p.aimAt(ctx, 12, 0.6);
+    const speed = 30;
+    const dur = 16 / speed;
+    const hx = Math.sin(p.heading);
+    const hz = Math.cos(p.heading);
+    const hit = new Set();
+    sfx.dash();
+    p.act({
+      anim: 'charge',
+      dur,
+      invuln: dur + 0.2,
+      vel: { x: hx * speed, z: hz * speed },
+      spike: 0,
+      update(dt, a) {
+        a.spike -= dt;
+        if (a.spike <= 0) {
+          a.spike = 0.08;
+          g.effects.spikes(p.x - hx, p.z - hz, 0x7a6a50, 0.8);
+        }
+        g.hitEnemiesInRadius(p.x, p.z, 2, (e) => {
+          if (hit.has(e)) return null;
+          hit.add(e);
+          e.status({ stun: 2.5 });
+          const side = (e.x - p.x) * hz - (e.z - p.z) * hx > 0 ? 1 : -1;
+          e.kx += hz * side * 10 + hx * 6;
+          e.kz += -hx * side * 10 + hz * 6;
+          return { ...p.rollDamage(3, true), knock: 0, launch: 6 };
+        });
+      },
+      end() {
+        g.effects.ring(p.x, p.z, 5, 0xffd27f, 0.45);
+        g.effects.spikes(p.x, p.z, 0x7a6a50, 2.5);
+        g.effects.shake(0.7);
+        sfx.slam();
+        g.hitEnemiesInRadius(p.x, p.z, 5, () => ({ ...p.rollDamage(3, true), knock: 10 }));
+      },
+    });
+  },
+});
+
+evo('warcry', {
+  name: 'Avatar of War',
+  icon: '👑',
+  cd: () => 18,
+  desc: () => 'Become a giant for 10s: +100% damage, +40% attack speed, +50 armor. Nearby enemies flee in terror for 3s.',
+  cast(p) {
+    const g = p.game;
+    p.addBuff('avatar', 10, { dmg: 1, as: 0.4, armor: 50, size: 0.35 }, 0xffd24a);
+    for (const [r, c, d] of [
+      [8, 0xffd24a, 0.6],
+      [5, 0xff7a4a, 0.45],
+      [3, 0xffffff, 0.35],
+    ])
+      g.effects.ring(p.x, p.z, r, c, d, p.y + 0.1);
+    g.effects.burst(p.x, p.y + 1.5, p.z, 0xffd24a, 40, 10, 0.2, 0.8, 4);
+    g.effects.shake(0.6);
+    sfx.slam();
+    g.hitEnemiesInRadius(p.x, p.z, 8, (e) => {
+      e.status({ blind: 3 });
+      return { amount: 1, crit: false, knock: 12, silent: true };
+    });
+    p.act({ anim: 'roar', dur: 0.6 });
+  },
+});
+
+evo('aegis', {
+  name: 'Divine Bulwark',
+  icon: '🌟',
+  cd: () => 14,
+  desc: () => 'A shield of 60% max health for 8s that pulses holy light (100% damage in 4m every 0.6s) and detonates for 500% when it ends.',
+  cast(p) {
+    const g = p.game;
+    sfx.heal();
+    const zone = g.zone({ x: p.x, z: p.z, r: 4, life: 8, kind: 'holy', tick: 0.6, follow: p, onTick: () => {
+      g.effects.ring(p.x, p.z, 4, 0xfff0a0, 0.35, p.y + 0.1);
+      g.hitEnemiesInRadius(p.x, p.z, 4, () => ({ ...p.rollDamage(1, true), knock: 3 }));
+    } });
+    p.shieldUp(p.final.maxHp * 0.6, 8, () => {
+      zone.life = 0;
+      g.effects.ring(p.x, p.z, 6, 0xfff0a0, 0.55, p.y + 0.1);
+      g.effects.burst(p.x, p.y + 1, p.z, 0xfff0a0, 40, 10, 0.16, 0.7, 3);
+      g.effects.shake(0.6);
+      sfx.boom();
+      g.hitEnemiesInRadius(p.x, p.z, 6, () => ({ ...p.rollDamage(5, true), knock: 10 }));
+    });
+    p.act({ anim: 'roar', dur: 0.4 });
+  },
+});
+
+evo('fissure', {
+  name: 'World Splitter',
+  icon: '🗻',
+  cd: () => 8,
+  desc: () => 'Three fissures tear the ground in a fan: 10 eruptions each for 220% damage that launch enemies and leave fire.',
+  cast(p, lv, ctx) {
+    p.aimAt(ctx, 12, 0.5);
+    const g = p.game;
+    const ox = p.x;
+    const oz = p.z;
+    p.act({ anim: 'overhead', dur: 0.5 });
+    for (const off of [-0.45, 0, 0.45]) {
+      const hx = Math.sin(p.heading + off);
+      const hz = Math.cos(p.heading + off);
+      for (let i = 0; i < 10; i++) {
+        g.schedule(0.18 + i * 0.06, () => {
+          const x = ox + hx * (1.6 + i * 1.5);
+          const z = oz + hz * (1.6 + i * 1.5);
+          if (g.dungeon.heightAtPoint(x, z) > 2) return;
+          g.effects.spikes(x, z, 0x7a5040, 1.1);
+          g.effects.burst(x, 0.3, z, 0xff7a2e, 8, 7, 0.2, 0.5);
+          if (i % 2 === 0) g.spawnFirePatch(x, z);
+          if (i % 3 === 0) sfx.slam();
+          g.hitEnemiesInRadius(x, z, 1.9, () => ({ ...p.rollDamage(2.2, true), knock: 2, launch: 8 }));
+        });
+      }
+    }
+    g.schedule(0.2, () => g.effects.shake(0.7));
+  },
+});
+
+// ------------------------------------------------------------------ RANGER
+evo('multishot', {
+  name: 'Storm of Arrows',
+  icon: '🌠',
+  cd: () => 4,
+  desc: () => 'Three volleys of 15 arrows in quick succession, 110% damage each, piercing two enemies.',
+  cast(p, lv, ctx) {
+    p.aimAt(ctx, 16, 0.8, true);
+    const g = p.game;
+    p.act({ anim: 'shoot', dur: 0.5, move: 0.4 });
+    for (let v = 0; v < 3; v++)
+      g.schedule(v * 0.15, () => {
+        sfx.arrow();
+        for (let i = 0; i < 15; i++) g.shoot({ from: p, heading: p.heading + (i - 7) * 0.11 + (v - 1) * 0.05, speed: 32, life: 0.75, kind: 'arrow', dmg: () => p.rollDamage(1.1, true), knock: 3, pierce: 2 });
+      });
+  },
+});
+
+evo('rain', {
+  name: 'Arrow Monsoon',
+  icon: '⛈️',
+  cd: () => 12,
+  desc: () => 'For 5s a storm of arrows follows you, hammering everything within 7m for 80% damage five times a second and slowing them.',
+  cast(p) {
+    const g = p.game;
+    p.act({ anim: 'skyshot', dur: 0.4 });
+    sfx.arrow();
+    g.zone({ x: p.x, z: p.z, r: 7, life: 5, kind: 'rain', tick: 0.2, follow: p, onTick: (z) => {
+      for (let i = 0; i < 10; i++) g.effects.fallingArrow(z.x + (Math.random() - 0.5) * 13, z.z + (Math.random() - 0.5) * 13);
+      if (Math.random() < 0.5) sfx.arrow();
+      g.hitEnemiesInRadius(z.x, z.z, 7, (e) => {
+        e.status({ slow: [0.6, 0.45] });
+        return { ...p.rollDamage(0.8, true), knock: 0 };
+      });
+    } });
+  },
+});
+
+evo('pierce', {
+  name: 'Dragon Lance',
+  icon: '🐉',
+  cd: () => 5,
+  desc: () => 'A blazing lance for 600% damage that explodes on every enemy it passes through and scorches a burning trail.',
+  cast(p, lv, ctx) {
+    p.aimAt(ctx, 24, 0.5, true);
+    const g = p.game;
+    p.act({
+      anim: 'draw',
+      dur: 0.4,
+      move: 0.3,
+      end() {
+        sfx.fire();
+        sfx.dash();
+        const hx = Math.sin(p.heading);
+        const hz = Math.cos(p.heading);
+        for (let i = 1; i < 12; i++) {
+          const x = p.x + hx * i * 2;
+          const z = p.z + hz * i * 2;
+          if (g.dungeon.heightAtPoint(x, z) > 2) break;
+          g.schedule(i * 0.04, () => g.spawnFirePatch(x, z));
+        }
+        g.shoot({
+          from: p,
+          heading: p.heading,
+          speed: 46,
+          life: 0.6,
+          kind: 'fire',
+          radius: 1,
+          pierce: 99,
+          dmg: () => p.rollDamage(6, true),
+          knock: 10,
+          onHit: (e) => {
+            g.effects.ring(e.x, e.z, 2.8, 0xff9a3d, 0.3);
+            g.effects.burst(e.x, 1, e.z, 0xff7a2e, 14, 6, 0.18, 0.4);
+            g.hitEnemiesInRadius(e.x, e.z, 2.8, (o) => (o === e ? null : { ...p.rollDamage(2, true), knock: 5 }));
+            e.status({ burn: [3, p.final.damage * 0.4 * p.final.skillMult] });
+          },
+        });
+      },
+    });
+  },
+});
+
+evo('vault', {
+  name: 'Phantom Vault',
+  icon: '👻',
+  cd: () => 6,
+  desc: () => 'Backflip away, leaving a 5m frost blast (200% damage, 3s freeze), and loose 9 homing arrows mid-air.',
+  cast(p, lv, ctx) {
+    const g = p.game;
+    p.aimAt(ctx, 14, 3.2, true);
+    const back = p.heading + Math.PI;
+    const ox = p.x;
+    const oz = p.z;
+    p.vy = 10;
+    p.grounded = false;
+    sfx.jump();
+    sfx.frost();
+    g.effects.ring(ox, oz, 5, 0x9fe3ff, 0.5);
+    g.effects.iceShards(ox, oz, 4);
+    g.hitEnemiesInRadius(ox, oz, 5, (e) => {
+      e.status({ freeze: 3 });
+      return { ...p.rollDamage(2, true), knock: 0 };
+    });
+    p.act({ anim: 'flip', invuln: 0.8, untilLand: true, dur: 2, vel: { x: Math.sin(back) * 11, z: Math.cos(back) * 11 }, fired: false,
+      update(dt, a) {
+        if (!a.fired && a.t > 0.18) {
+          a.fired = true;
+          sfx.arrow();
+          const used = new Set();
+          for (let i = 0; i < 9; i++) {
+            const t = nearest(g, p.x, p.z, 18, used) || nearest(g, p.x, p.z, 18);
+            if (t) used.add(t);
+            g.shoot({ from: p, heading: t ? Math.atan2(t.x - p.x, t.z - p.z) + (Math.random() - 0.5) * 0.3 : p.heading + (i - 4) * 0.2, speed: 26, life: 0.9, kind: 'bigarrow', homing: t, dmg: () => p.rollDamage(1.4, true), knock: 3 });
+          }
+        }
+      } });
+  },
+});
+
+evo('trap', {
+  name: 'Minefield',
+  icon: '💥',
+  cd: () => 8,
+  desc: () => 'Scatter six mines in a ring. Each blasts 4.5m for 450% damage and sets foes ablaze, and a blast sets off every mine near it.',
+  cast(p, lv, ctx) {
+    const g = p.game;
+    const t = p.aimAt(ctx, 12, 0.9, true);
+    const d = t ? Math.min(8, Math.hypot(t.x - p.x, t.z - p.z)) : 5;
+    const cx = p.x + Math.sin(p.heading) * d;
+    const cz = p.z + Math.cos(p.heading) * d;
+    p.act({ anim: 'throw', dur: 0.3 });
+    const mines = [];
+    const boom = (zone) => {
+      if (zone.gone) return true;
+      zone.gone = true;
+      zone.life = 0;
+      g.effects.ring(zone.x, zone.z, 4.5, 0xff9a3d, 0.4);
+      g.effects.burst(zone.x, 0.4, zone.z, 0xff7a2e, 26, 9, 0.22, 0.6, 5);
+      g.effects.shake(0.35);
+      sfx.boom();
+      g.hitEnemiesInRadius(zone.x, zone.z, 4.5, (e) => {
+        e.status({ burn: [3, p.final.damage * 0.35 * p.final.skillMult] });
+        return { ...p.rollDamage(4.5, true), knock: 9, launch: 6 };
+      });
+      for (const m of mines) if (!m.gone && Math.hypot(m.x - zone.x, m.z - zone.z) < 6) g.schedule(0.15, () => boom(m));
+      return true;
+    };
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      let x = cx + Math.cos(a) * 3.5;
+      let z = cz + Math.sin(a) * 3.5;
+      if (g.dungeon.heightAtPoint(x, z) > 2) {
+        x = cx;
+        z = cz;
+      }
+      mines.push(g.zone({ x, z, r: 1.8, life: 25, kind: 'trap', arm: 0.4, onEnter: boom }));
+    }
+  },
+});
+
+evo('focus', {
+  name: 'Eagle Eye',
+  icon: '👁️',
+  cd: () => 16,
+  desc: () => 'For 10s: +100% attack speed, +30% crit, every shot fires three arrows and all arrows pierce three enemies.',
+  cast(p) {
+    p.addBuff('eagle', 10, { as: 1, crit: 0.3, pierce: 3, tripleShot: 1 }, 0x8dff9c);
+    p.game.effects.ring(p.x, p.z, 4, 0x8dff9c, 0.5, p.y + 0.1);
+    p.game.effects.burst(p.x, p.y + 1.6, p.z, 0x8dff9c, 24, 6, 0.14, 0.6, 2);
+    sfx.pickup();
+    p.act({ anim: 'roar', dur: 0.35 });
+  },
+});
+
+// -------------------------------------------------------------------- MAGE
+evo('firebolt', {
+  name: 'Inferno Barrage',
+  icon: '☀️',
+  cd: () => 3,
+  desc: () => 'Nine homing fireballs spiral out, each exploding for 300% damage in 3m and leaving burning ground.',
+  cast(p, lv, ctx) {
+    const g = p.game;
+    p.aimAt(ctx, 18, 1.2, true);
+    p.act({ anim: 'cast', dur: 0.5, move: 0.5 });
+    const used = new Set();
+    for (let i = 0; i < 9; i++)
+      g.schedule(i * 0.05, () => {
+        sfx.fire();
+        const t = nearest(g, p.x, p.z, 20, used) || nearest(g, p.x, p.z, 20);
+        if (t) used.add(t);
+        g.shoot({ from: p, heading: p.heading + (i - 4) * 0.35, speed: 20, life: 1.8, kind: 'fire', homing: t, explode: 3, dmg: () => p.rollDamage(3, true), knock: 5, onHit: (e) => {
+          e.status({ burn: [2.5, p.final.damage * 0.3 * p.final.skillMult] });
+          if (Math.random() < 0.35) g.spawnFirePatch(e.x, e.z);
+        } });
+      });
+  },
+});
+
+evo('nova', {
+  name: 'Absolute Zero',
+  icon: '🧊',
+  cd: () => 9,
+  desc: () => 'Three expanding waves of frost (7m, 9m, 11m), each 250% damage, freezing everything for 4s.',
+  cast(p) {
+    const g = p.game;
+    p.act({ anim: 'slamcast', dur: 0.6 });
+    [7, 9, 11].forEach((R, i) =>
+      g.schedule(i * 0.25, () => {
+        g.effects.ring(p.x, p.z, R, 0x9fe3ff, 0.5, p.y + 0.1);
+        g.effects.ring(p.x, p.z, R * 0.8, 0xffffff, 0.4, p.y + 0.12);
+        g.effects.iceShards(p.x, p.z, R);
+        g.effects.burst(p.x, p.y + 1, p.z, 0xcff4ff, 30, 12, 0.2, 0.8, 4);
+        g.effects.shake(0.3);
+        sfx.frost();
+        g.hitEnemiesInRadius(p.x, p.z, R, (e) => {
+          e.status({ freeze: 4 });
+          return { ...p.rollDamage(2.5, true), knock: 2 };
+        });
+      }),
+    );
+  },
+});
+
+evo('chain', {
+  name: 'Thunder God',
+  icon: '🌩️',
+  cd: () => 4,
+  desc: () => 'Lightning leaps between 12 enemies for 250% damage, a sky bolt blasts each one it strikes, and six more bolts rain down nearby.',
+  cast(p, lv, ctx) {
+    const g = p.game;
+    const first = p.aimAt(ctx, 16, 1.2, true);
+    p.act({ anim: 'skycast', dur: 0.4 });
+    sfx.frost();
+    const strike = (e) => g.skyStrike(e.x, e.z, 2.5, () => ({ ...p.rollDamage(1.5, true), knock: 4 }));
+    if (first) {
+      const pts = [[p.x, p.y + 1.6, p.z]];
+      const hit = new Set();
+      let cur = first;
+      for (let i = 0; i < 12 && cur; i++) {
+        hit.add(cur);
+        pts.push([cur.x, cur.y + cur.height * 0.6, cur.z]);
+        g.damageEnemy(cur, { ...p.rollDamage(2.5, true), knock: 2 }, p.x, p.z);
+        cur.status({ stun: 0.6 });
+        const target = cur;
+        g.schedule(0.05 * i, () => target.alive && strike(target));
+        cur = nearest(g, cur.x, cur.z, 9, hit);
+      }
+      g.lightning(pts, 0xaad4ff);
+    }
+    for (let i = 0; i < 6; i++)
+      g.schedule(0.2 + i * 0.15, () => {
+        const e = g.enemies.filter((o) => o.alive && Math.hypot(o.x - p.x, o.z - p.z) < 14);
+        const t = e[Math.floor(Math.random() * e.length)];
+        if (t) strike(t);
+        else g.skyStrike(p.x + (Math.random() - 0.5) * 10, p.z + (Math.random() - 0.5) * 10, 2.5, () => ({ ...p.rollDamage(1.5, true), knock: 4 }));
+      });
+  },
+});
+
+evo('meteor', {
+  name: 'Armageddon',
+  icon: '🌑',
+  cd: () => 12,
+  desc: () => 'Seven meteors pound the target area over 2s, each 600% damage in 4.5m, leaving the ground ablaze.',
+  cast(p, lv, ctx) {
+    const g = p.game;
+    const t = p.aimAt(ctx, 16, 1, true);
+    const d = t ? Math.hypot(t.x - p.x, t.z - p.z) : 8;
+    const cx = p.x + Math.sin(p.heading) * d;
+    const cz = p.z + Math.cos(p.heading) * d;
+    p.act({ anim: 'skycast', dur: 0.6 });
+    sfx.fire();
+    for (let i = 0; i < 7; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = i === 0 ? 0 : 1.5 + Math.random() * 4;
+      const x = cx + Math.cos(a) * r;
+      const z = cz + Math.sin(a) * r;
+      const delay = 0.2 + i * 0.25;
+      g.schedule(delay, () => {
+        g.effects.telegraph(x, z, 4.5, 0.8, 0xff7a2e);
+        g.effects.meteor(x, z, 0.8);
+      });
+      g.schedule(delay + 0.8, () => {
+        g.effects.ring(x, z, 4.5, 0xff9a3d, 0.5);
+        g.effects.burst(x, 0.5, z, 0xff7a2e, 36, 12, 0.25, 0.8, 8);
+        g.effects.shake(0.6);
+        sfx.boom();
+        g.hitEnemiesInRadius(x, z, 4.5, (e) => {
+          e.status({ burn: [3, p.final.damage * 0.35 * p.final.skillMult] });
+          return { ...p.rollDamage(6, true), knock: 10, launch: 8 };
+        });
+        for (let k = 0; k < 3; k++) g.spawnFirePatch(x + (Math.random() - 0.5) * 4, z + (Math.random() - 0.5) * 4);
+      });
+    }
+  },
+});
+
+evo('blink', {
+  name: 'Rift Walk',
+  icon: '🌀',
+  cd: () => 2.5,
+  desc: () => 'Tear through space 12m: everything along the rift takes 300% damage and is slowed, with arcane blasts at both ends.',
+  cast(p, lv, ctx) {
+    const g = p.game;
+    const h = ctx.wish ?? ctx.camYaw;
+    p.heading = h;
+    const sx = p.x;
+    const sz = p.z;
+    const blast = (x, z) => {
+      g.effects.ring(x, z, 3.5, 0xd08dff, 0.4, p.y + 0.1);
+      g.effects.burst(x, p.y + 1, z, 0xd08dff, 20, 7, 0.15, 0.5, 3);
+      g.hitEnemiesInRadius(x, z, 3.5, (e) => {
+        e.status({ slow: [2.5, 0.4] });
+        return { ...p.rollDamage(2, true), knock: 6 };
+      });
+    };
+    blast(sx, sz);
+    p.teleport(Math.sin(h), Math.cos(h), 12);
+    const len = Math.hypot(p.x - sx, p.z - sz);
+    const hit = new Set();
+    for (let d = 0; d <= len; d += 1) {
+      const x = sx + Math.sin(h) * d;
+      const z = sz + Math.cos(h) * d;
+      g.effects.puff(x, p.y + 1, z, 0xb58cff, 0.5, 0.6);
+      g.hitEnemiesInRadius(x, z, 1.8, (e) => {
+        if (hit.has(e)) return null;
+        hit.add(e);
+        e.status({ slow: [3, 0.4] });
+        return { ...p.rollDamage(3, true), knock: 4 };
+      });
+    }
+    g.lightning([[sx, p.y + 1, sz], [p.x, p.y + 1, p.z]], 0xd08dff);
+    blast(p.x, p.z);
+    p.invuln = Math.max(p.invuln, 0.5);
+    sfx.portal();
+    p.act({ anim: 'cast', dur: 0.15 });
+  },
+});
+
+evo('orb', {
+  name: 'Singularity',
+  icon: '🕳️',
+  cd: () => 8,
+  desc: () => 'A slow black hole that drags every enemy within 9m into it, grinding for 120% per tick, then collapses for 800% in 7m.',
+  cast(p, lv, ctx) {
+    p.aimAt(ctx, 16, 0.6, true);
+    p.act({ anim: 'cast', dur: 0.35 });
+    sfx.portal();
+    const g = p.game;
+    g.shoot({ from: p, heading: p.heading, speed: 4.5, life: 3.6, kind: 'orb', radius: 3.2, pull: 9, pierce: 999, tickDmg: () => p.rollDamage(1.2, true), explode: 7, dmg: () => {
+      g.effects.shake(0.8);
+      return p.rollDamage(8, true);
+    }, knock: 12, explodeAtEnd: true });
+  },
+});
+
+// ------------------------------------------------------------------- ROGUE
+evo('shadowstep', {
+  name: "Death's Dance",
+  icon: '💀',
+  cd: () => 7,
+  desc: () => 'Flicker between up to six enemies, appearing behind each to strike a guaranteed critical hit for 300% damage.',
+  cast(p) {
+    const g = p.game;
+    const hit = new Set();
+    p.invuln = Math.max(p.invuln, 1);
+    p.act({ anim: 'stab', dur: 0.9 });
+    for (let i = 0; i < 6; i++)
+      g.schedule(i * 0.13, () => {
+        const t = nearest(g, p.x, p.z, 14, hit);
+        if (!t) return;
+        hit.add(t);
+        g.effects.burst(p.x, p.y + 1, p.z, 0x6a4a8a, 10, 4, 0.2, 0.4, 1);
+        const h = Math.atan2(t.x - p.x, t.z - p.z);
+        p.teleport(Math.sin(h), Math.cos(h), Math.hypot(t.x - p.x, t.z - p.z) + t.radius + 0.9);
+        p.heading = Math.atan2(t.x - p.x, t.z - p.z);
+        g.effects.slash(p.x, p.y + 1, p.z, p.heading, 2.4, 0xff4a6a, 1.4, 0.3);
+        sfx.crit();
+        g.damageEnemy(t, { ...p.rollDamage(3, true, true), knock: 4 }, p.x, p.z);
+        t.status({ stun: 0.8 });
+      });
+  },
+});
+
+evo('fan', {
+  name: 'Blade Storm',
+  icon: '⚔️',
+  cd: () => 5,
+  desc: () => 'Three spiralling waves of 30 poisoned knives, 120% damage each.',
+  cast(p) {
+    const g = p.game;
+    p.act({ anim: 'spin', dur: 0.6 });
+    for (let w = 0; w < 3; w++)
+      g.schedule(w * 0.2, () => {
+        sfx.swing();
+        for (let i = 0; i < 30; i++) g.shoot({ from: p, heading: (i / 30) * Math.PI * 2 + w * 0.1, speed: 24, life: 0.6, kind: 'knife', dmg: () => p.rollDamage(1.2, true), knock: 3, onHit: (e) => e.status({ poison: [4, p.final.damage * 0.4] }) });
+      });
+  },
+});
+
+evo('poison', {
+  name: 'Plague',
+  icon: '🦠',
+  cd: () => 10,
+  desc: () => 'A 6m plague cloud clings to you for 8s, poisoning (80% per tick) and slowing everything inside.',
+  cast(p) {
+    const g = p.game;
+    p.act({ anim: 'throwdown', dur: 0.3 });
+    sfx.boom();
+    g.zone({ x: p.x, z: p.z, r: 6, life: 8, kind: 'poison', tick: 0.35, follow: p, onTick: (z) => {
+      g.hitEnemiesInRadius(z.x, z.z, 6, (e) => {
+        e.status({ slow: [0.6, 0.5], poison: [2, p.final.damage * 0.3] });
+        return { ...p.rollDamage(0.8, true), knock: 0, silent: true, dot: 'poison' };
+      });
+    } });
+  },
+});
+
+evo('flurry', {
+  name: 'Thousand Cuts',
+  icon: '🩸',
+  cd: () => 7,
+  desc: () => '3s of blinding blade-work in every direction (50% damage fourteen times a second) that heals you for 5% of damage dealt.',
+  cast(p) {
+    const g = p.game;
+    p.addBuff('cuts', 3, { ls: 0.05 }, 0xff4a6a);
+    p.act({
+      anim: 'flurry',
+      dur: 3,
+      move: 0.8,
+      tick: 0,
+      update(dt, a) {
+        a.tick -= dt;
+        if (a.tick > 0) return;
+        a.tick = 0.07;
+        g.effects.slash(p.x, p.y + 1, p.z, Math.random() * Math.PI * 2, 3, 0xff6a8a, 1.3, (Math.random() - 0.5) * 1.5);
+        if (Math.random() < 0.5) sfx.swing();
+        g.hitEnemiesInRadius(p.x, p.z, 3.2 * p.mods.reach, () => ({ ...p.rollDamage(0.5, true), knock: 1 }));
+      },
+    });
+  },
+});
+
+evo('smoke', {
+  name: 'Shadow Realm',
+  icon: '🌘',
+  cd: () => 14,
+  desc: () => 'Vanish for 4s (untouchable). For 5s every hit crits, +50% damage and +60% speed; enemies within 9m are dazed for 5s.',
+  cast(p) {
+    const g = p.game;
+    p.invuln = Math.max(p.invuln, 4);
+    p.addBuff('realm', 5, { ms: 0.6, critAll: 1, dmg: 0.5 }, 0x7a5aaa);
+    for (let i = 0; i < 50; i++) g.effects.smoke(p.x + (Math.random() - 0.5) * 9, p.z + (Math.random() - 0.5) * 9);
+    g.effects.ring(p.x, p.z, 9, 0x7a5aaa, 0.6);
+    sfx.dash();
+    g.hitEnemiesInRadius(p.x, p.z, 9, (e) => {
+      e.status({ blind: 5 });
+      return null;
+    });
+    p.act({ anim: 'throwdown', dur: 0.25 });
+  },
+});
+
+evo('assassinate', {
+  name: 'Reaper',
+  icon: '⚰️',
+  cd: () => 9,
+  desc: () => 'Dash through up to five enemies in a row for 500% critical damage each, executing any regular enemy under 40% health.',
+  cast(p, lv, ctx) {
+    const g = p.game;
+    const hit = new Set();
+    let first = p.aimAt(ctx, 12, 1.2);
+    const dashTo = (t, i) => {
+      if (!t || i >= 5) return;
+      hit.add(t);
+      p.heading = Math.atan2(t.x - p.x, t.z - p.z);
+      const dist = Math.hypot(t.x - p.x, t.z - p.z) + 1.5;
+      const speed = 40;
+      p.act({
+        anim: 'lunge',
+        dur: Math.min(0.35, dist / speed),
+        invuln: 0.5,
+        vel: { x: Math.sin(p.heading) * speed, z: Math.cos(p.heading) * speed },
+        update() {
+          g.effects.puff(p.x, p.y + 1, p.z, 0x8a2a3a, 0.4, 0.35);
+        },
+        end() {
+          if (t.alive) {
+            if (!t.def.boss && t.hp < t.maxHp * 0.4) g.damageEnemy(t, { amount: t.hp + 1, crit: true, knock: 6 }, p.x, p.z);
+            else g.damageEnemy(t, { ...p.rollDamage(5, true, true), knock: 6 }, p.x, p.z);
+            g.effects.burst(t.x, t.y + 1, t.z, 0xff2a3a, 16, 6, 0.15, 0.5);
+            g.hitStop(0.04);
+          }
+          dashTo(nearest(g, p.x, p.z, 12, hit), i + 1);
+        },
+      });
+    };
+    sfx.dash();
+    dashTo(first || nearest(g, p.x, p.z, 10, hit), 0);
+  },
+});

@@ -3,10 +3,11 @@
 
 import * as THREE from 'three';
 import { G, mat, part } from './rig.js';
+import { applySurface, metalSurface, leatherSurface } from './textures.js';
 
 export function gearMats(tier, hex) {
   const metal = new THREE.Color(0xb4bac4).lerp(new THREE.Color(hex), [0.02, 0.22, 0.35, 0.45, 0.55][tier]);
-  return {
+  const M = {
     metal: mat(metal, { metal: 0.55, rough: 0.3, emissive: tier >= 3 ? hex : 0x000000, ei: 0.22 }),
     glow: mat(hex, { emissive: hex, ei: 1.6 }),
     grip: mat(tier >= 3 ? 0x2a1a2e : 0x4a2e1a, { rough: 0.9 }),
@@ -15,6 +16,10 @@ export function gearMats(tier, hex) {
     dark: mat(0x2a2a30, { metal: 0.4, rough: 0.5 }),
     string: mat(0xefe8d8, { rough: 1 }),
   };
+  applySurface(M.metal, metalSurface(), 0.5);
+  applySurface(M.gold, metalSurface(), 0.4);
+  applySurface(M.grip, leatherSurface(), 1);
+  return M;
 }
 
 // ------------------------------------------------------------------ weapons

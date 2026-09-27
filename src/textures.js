@@ -95,63 +95,94 @@ function bake(S, height, color, rough, strength) {
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
-// Running-bond stone bricks with chipped edges, per-brick shade and cracks.
+// Running-bond stone bricks with chipped, worn edges, per-brick tone and
+// cracks. One texture tile covers 2m x 2m of wall (8 courses of bricks).
 export function brickTextures() {
   if (cache.has('brick')) return cache.get('brick');
-  const S = 256;
+  const S = 512;
   const r = makeRng(71);
-  const n1 = noiseField(S, 8, 4, 3);
-  const n2 = noiseField(S, 4, 3, 9);
+  const n1 = noiseField(S, 16, 4, 3);
+  const n2 = noiseField(S, 8, 3, 9);
+  const n3 = noiseField(S, 64, 2, 13);
   const h = new Float32Array(S * S);
   const shade = new Float32Array(S * S);
-  const rows = 6;
+  const warm = new Float32Array(S * S);
+  const rows = 8;
   const rowH = S / rows;
   const brickW = S / 3;
   const shades = [];
-  for (let i = 0; i < 64; i++) shades.push(0.75 + r.next() * 0.35);
+  const warms = [];
+  const jit = [];
+  for (let i = 0; i < 96; i++) {
+    shades.push(0.7 + r.next() * 0.4);
+    warms.push((r.next() - 0.5) * 0.12);
+    jit.push((r.next() - 0.5) * brickW * 0.35);
+  }
   for (let y = 0; y < S; y++) {
     const row = Math.floor(y / rowH);
-    const off = row % 2 ? brickW / 2 : 0;
     for (let x = 0; x < S; x++) {
-      const xx = (x + off) % S;
+      const off = (row % 2 ? brickW / 2 : 0) + jit[row * 7 % 96];
+      const xx = (((x + off) % S) + S) % S;
       const col = Math.floor(xx / brickW);
       const lx = xx - col * brickW;
       const ly = y - row * rowH;
       const edge = Math.min(lx, brickW - lx, ly, rowH - ly);
       const i = y * S + x;
-      const chip = n2[i] * 5;
-      const mortar = clamp01((edge - 2 - chip * 0.6) / 4);
-      const bevel = clamp01(edge / 9);
-      h[i] = mortar * (0.55 + 0.45 * bevel) + n1[i] * 0.35 * mortar;
-      shade[i] = mortar > 0 ? shades[(row * 5 + col) % 64] : 0.45;
+      const chip = n2[i] * 9;
+      const mortar = clamp01((edge - 3 - chip * 0.7) / 5);
+      const bevel = clamp01(edge / 14);
+      const id = (row * 5 + col * 3) % 96;
+      // rounded bulge per brick + fine pitting
+      h[i] = mortar * (0.5 + 0.35 * Math.sqrt(bevel) + n1[i] * 0.25 - n3[i] * 0.08);
+      shade[i] = mortar > 0 ? shades[id] : 0.38;
+      warm[i] = mortar > 0 ? warms[id] : 0;
     }
   }
-  // a few cracks
-  for (let k = 0; k < 7; k++) {
+  for (let k = 0; k < 14; k++) {
     let x = r.next() * S;
     let y = r.next() * S;
     let a = r.next() * Math.PI * 2;
-    for (let s = 0; s < 40; s++) {
+    for (let st = 0; st < 60; st++) {
       a += (r.next() - 0.5) * 0.9;
       x = (x + Math.cos(a) * 1.5 + S) % S;
       y = (y + Math.sin(a) * 1.5 + S) % S;
       const i = (Math.floor(y) % S) * S + (Math.floor(x) % S);
-      h[i] *= 0.3;
+      h[i] *= 0.25;
+      h[(i + 1) % (S * S)] *= 0.6;
     }
   }
   const out = bake(
     S,
     h,
     (i) => {
-      const v = (shade[i] * (0.8 + n1[i] * 0.35)) * (0.55 + h[i] * 0.45);
-      const g = clamp01(v) * 225;
-      return [g * 1.02, g, g * 0.97];
+      const v = shade[i] * (0.78 + n1[i] * 0.4) * (0.5 + h[i] * 0.5) - n3[i] * 0.06;
+      const g = clamp01(v) * 228;
+      return [g * (1.02 + warm[i]), g, g * (0.97 - warm[i] * 0.5)];
     },
-    (i) => 0.75 + (1 - h[i]) * 0.2,
-    6,
+    (i) => 0.7 + (1 - h[i]) * 0.25 + n2[i] * 0.05,
+    9,
   );
   cache.set('brick', out);
   return out;
+}
+
+// Large, soft grey noise used to break up tiling with stains and grime.
+export function grimeTexture() {
+  if (cache.has('grime')) return cache.get('grime');
+  const S = 128;
+  const n = noiseField(S, 4, 5, 77);
+  const c = canvas(S);
+  const g = c.getContext('2d');
+  const img = g.createImageData(S, S);
+  for (let i = 0; i < S * S; i++) {
+    const v = clamp01((n[i] - 0.5) * 1.8 + 0.5) * 255;
+    img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = v;
+    img.data[i * 4 + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  const t = toTexture(c, false);
+  cache.set('grime', t);
+  return t;
 }
 
 // Irregular flagstones: a 2x2 grid of offset slabs per tile.
@@ -315,4 +346,118 @@ export function cobwebTexture() {
   t.colorSpace = THREE.SRGBColorSpace;
   cache.set('web', t);
   return t;
+}
+
+// ------------------------------------------------------ character surfaces
+// Small tileable normal + roughness maps that give costumes and creatures
+// fine surface detail: woven cloth, grained leather, brushed metal, skin, bone.
+function surfaceSet(key, S, heightFn, roughFn, strength, repeat) {
+  if (cache.has(key)) return cache.get(key);
+  const h = new Float32Array(S * S);
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) h[y * S + x] = heightFn(x, y, y * S + x);
+  const out = bake(S, h, () => [255, 255, 255], (i) => roughFn(i, h[i]), strength);
+  for (const t of [out.normalMap, out.roughnessMap]) t.repeat.set(repeat[0], repeat[1]);
+  out.map.dispose();
+  delete out.map;
+  cache.set(key, out);
+  return out;
+}
+
+export function clothSurface() {
+  const n = noiseField(128, 8, 3, 101);
+  return surfaceSet(
+    'cloth',
+    128,
+    (x, y, i) => {
+      // plain weave: alternating over/under threads
+      const wx = Math.sin((x / 128) * Math.PI * 2 * 32);
+      const wy = Math.sin((y / 128) * Math.PI * 2 * 32);
+      const over = (Math.floor(x / 2) + Math.floor(y / 2)) % 2 ? wx : wy;
+      return 0.5 + over * 0.25 + n[i] * 0.3;
+    },
+    (i, h) => 0.85 + (1 - h) * 0.1,
+    3,
+    [4, 4],
+  );
+}
+
+export function leatherSurface() {
+  const n1 = noiseField(128, 16, 3, 111);
+  const n2 = noiseField(128, 4, 2, 112);
+  return surfaceSet(
+    'leather',
+    128,
+    (x, y, i) => {
+      const cell = Math.abs(n1[i] - 0.5) < 0.04 ? 0.2 : 1; // grain creases
+      return (0.6 + n2[i] * 0.4) * cell;
+    },
+    (i, h) => 0.6 + (1 - h) * 0.3,
+    4,
+    [3, 3],
+  );
+}
+
+export function metalSurface() {
+  const r = makeRng(121);
+  const n = noiseField(128, 4, 3, 122);
+  const h0 = new Float32Array(128 * 128);
+  // brushed streaks
+  for (let y = 0; y < 128; y++) {
+    const streak = r.next() * 0.25;
+    for (let x = 0; x < 128; x++) h0[y * 128 + x] = 0.6 + streak + n[y * 128 + x] * 0.15;
+  }
+  // scratches and dents
+  for (let k = 0; k < 40; k++) {
+    let x = r.next() * 128;
+    let y = r.next() * 128;
+    const a = r.next() * Math.PI;
+    const len = 6 + r.next() * 20;
+    for (let s = 0; s < len; s++) {
+      const i = (Math.floor(y + Math.sin(a) * s) & 127) * 128 + (Math.floor(x + Math.cos(a) * s) & 127);
+      h0[i] -= 0.35;
+    }
+  }
+  return surfaceSet(
+    'metal',
+    128,
+    (x, y, i) => h0[i],
+    (i, h) => 0.25 + (1 - h) * 0.45 + n[i] * 0.1,
+    3,
+    [2, 2],
+  );
+}
+
+export function skinSurface() {
+  const n1 = noiseField(128, 16, 3, 131);
+  const n2 = noiseField(128, 32, 1, 132);
+  return surfaceSet('skin', 128, (x, y, i) => 0.6 + n1[i] * 0.3 + n2[i] * 0.15, (i, h) => 0.65 + (1 - h) * 0.25, 2, [2, 2]);
+}
+
+export function boneSurface() {
+  const r = makeRng(141);
+  const n = noiseField(128, 8, 4, 142);
+  const h0 = new Float32Array(128 * 128);
+  for (let i = 0; i < h0.length; i++) h0[i] = 0.5 + n[i] * 0.4;
+  for (let k = 0; k < 16; k++) {
+    let x = r.next() * 128;
+    let y = r.next() * 128;
+    let a = r.next() * 6.28;
+    for (let s = 0; s < 30; s++) {
+      a += (r.next() - 0.5) * 0.8;
+      x += Math.cos(a);
+      y += Math.sin(a);
+      h0[(Math.floor(y) & 127) * 128 + (Math.floor(x) & 127)] *= 0.3;
+    }
+  }
+  return surfaceSet('bone', 128, (x, y, i) => h0[i], (i, h) => 0.55 + (1 - h) * 0.35, 4, [2, 3]);
+}
+
+// Give a standard material one of the surface sets above.
+export function applySurface(material, set, strength = 0.8) {
+  material.normalMap = set.normalMap;
+  material.roughnessMap = set.roughnessMap;
+  material.normalScale.set(strength, strength);
+  material.roughness = Math.max(material.roughness, 0.9);
+  material.needsUpdate = true;
+  return material;
 }
