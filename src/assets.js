@@ -35,8 +35,16 @@ export async function loadAssets(onProgress = () => {}) {
   const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
   const files = ['anims', 'gear', 'props', ...CHARACTERS];
   let done = 0;
+  // Hosts that can't serve .glb get base64 text copies (window.__PACKED_ASSETS).
+  const packed = typeof window !== 'undefined' && window.__PACKED_ASSETS;
+  const fetchGlb = async (name) => {
+    if (!packed) return loader.loadAsync(BASE + name + '.glb');
+    const txt = await (await fetch(BASE + name + '.glb.b64.txt')).text();
+    const bin = Uint8Array.from(atob(txt.trim()), (c) => c.charCodeAt(0));
+    return loader.parseAsync(bin.buffer, BASE);
+  };
   const load = (name) =>
-    loader.loadAsync(BASE + name + '.glb').then((g) => {
+    fetchGlb(name).then((g) => {
       onProgress(++done / files.length, name);
       return [name, g];
     });
