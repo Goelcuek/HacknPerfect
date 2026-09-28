@@ -20,6 +20,26 @@ Any static file host works (GitHub Pages, Netlify, itch.io…). A GitHub Pages w
 in `.github/workflows/pages.yml`. Turn it on under **Settings → Pages → Source: GitHub Actions**
 and it deploys on every push to `main`.
 
+## Android APK
+
+`android/` is a small native app that runs the game full-screen in a WebView, locked to
+landscape, with the game files bundled inside (it plays offline). The **Build Android APK**
+workflow (`.github/workflows/android.yml`) builds it on every push and publishes
+`HacknPerfect.apk` as the **apk-latest** release. Open that release on your phone, download the
+APK and install it (allow installs from your browser when Android asks). The back button
+pauses/resumes a run and closes the app from the menus.
+
+Builds are signed with the bundled `android/sideload.keystore`, so each new APK installs over the
+previous one. To use a private key instead, add the repo secrets `KEYSTORE_BASE64`,
+`KEYSTORE_PASSWORD`, `KEY_ALIAS` and `KEY_PASSWORD` (a new key means uninstalling the old APK once).
+
+To build locally (needs JDK 17 and the Android SDK):
+
+```sh
+android/sync-web.sh                         # copy the game into the APK assets
+cd android && ./gradlew assembleRelease     # → app/build/outputs/apk/release/app-release.apk
+```
+
 ## Classes
 
 | Class  | Weapon          | Style                                                             |

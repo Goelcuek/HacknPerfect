@@ -1,0 +1,6 @@
+.gradle/
+build/
+app/build/
+local.properties
+# filled from the web game by sync-web.sh / CI
+app/src/main/assets/

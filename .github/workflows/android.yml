@@ -1,0 +1,70 @@
+# Builds the Android APK (a landscape-locked WebView wrapper around the game)
+# and publishes it as the "apk-latest" GitHub release, so it can be downloaded
+# straight to a phone from the repo's Releases page.
+name: Build Android APK
+
+on:
+  push:
+    branches: [main, claude/web-hack-slash-roguelike-qa40ug]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-apk
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    env:
+      HAS_KEYSTORE: ${{ secrets.KEYSTORE_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Bundle the game into the APK assets
+        run: android/sync-web.sh
+
+      - name: Use signing key from secrets (if configured)
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        if: env.HAS_KEYSTORE == 'true'
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          echo "KEYSTORE_FILE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+
+      - name: Build release APK
+        working-directory: android
+        env:
+          VERSION_CODE: ${{ github.run_number }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Rename APK
+        run: cp android/app/build/outputs/apk/release/app-release.apk HacknPerfect.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HacknPerfect-apk
+          path: HacknPerfect.apk
+
+      - name: Publish "apk-latest" release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete apk-latest --yes --cleanup-tag || true
+          gh release create apk-latest HacknPerfect.apk \
+            --target "$GITHUB_SHA" \
+            --title "Hack n Perfect — Android (build ${{ github.run_number }})" \
+            --notes "Latest APK built from ${GITHUB_SHA::7} on ${GITHUB_REF_NAME}. Download HacknPerfect.apk on your phone and open it (allow installing from your browser when asked)." \
+            --latest

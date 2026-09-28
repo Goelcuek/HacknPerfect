@@ -1,0 +1,44 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Release signing: the KEYSTORE_* environment variables (set from repo secrets in CI)
+// win; otherwise the bundled sideload key is used so every build can update the last.
+def ksFile = System.getenv('KEYSTORE_FILE') ?: rootProject.file('sideload.keystore').path
+def ksPass = System.getenv('KEYSTORE_PASSWORD') ?: 'hacknperfect'
+def ksAlias = System.getenv('KEY_ALIAS') ?: 'hacknperfect'
+def ksKeyPass = System.getenv('KEY_PASSWORD') ?: ksPass
+
+android {
+    namespace 'com.hacknperfect.game'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.hacknperfect.game'
+        minSdk 26
+        targetSdk 35
+        versionCode Integer.parseInt(System.getenv('VERSION_CODE') ?: '1')
+        versionName '0.1.' + (System.getenv('VERSION_CODE') ?: '0')
+    }
+
+    signingConfigs {
+        release {
+            storeFile file(ksFile)
+            storePassword ksPass
+            keyAlias ksAlias
+            keyPassword ksKeyPass
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

@@ -143,6 +143,14 @@ window.addEventListener('resize', () => {
   game.resize(w, h);
 });
 
+// Android back button (called by the APK wrapper): pause / resume the run.
+// Returns false when there is nothing to back out of, so the app can close.
+window.__androidBack = () => {
+  if (game.state === 'play') { game.pause(); return true; }
+  if (game.state === 'pause') { game.resume(); return true; }
+  return false;
+};
+
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) game.pause();
 });
