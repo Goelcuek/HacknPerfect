@@ -15,6 +15,7 @@ import { G, mat } from './rig.js';
 import { propModel, hingeLid, gearModel } from './assets.js';
 import { sfx } from './audio.js';
 import { clamp, angleDiff, rng } from './utils.js';
+import { Net } from './net.js';
 
 const BEST_KEY = 'hacknperfect.best';
 
@@ -91,6 +92,28 @@ export class Game {
     this.zones = [];
     this.corpses = [];
     this.timers = [];
+    // multiplayer: fxCtx says whose code is running ('local' hero, 'enemy' AI on
+    // the host, 'remote' replayed visuals) so effects can be mirrored correctly
+    this.fxCtx = null;
+    this.enemySeq = 0;
+    this.net = new Net(this);
+  }
+
+  // Everyone enemies may go after: this hero plus (on the host) remote players.
+  targetFor(e) {
+    const p = this.player;
+    let best = p && !p.dead && (this.state === 'play' || !this.net.live) ? p : null;
+    let bd = best ? (p.x - e.x) ** 2 + (p.z - e.z) ** 2 : Infinity;
+    if (this.net.isHost)
+      for (const r of this.net.remotes.values()) {
+        if (!r.targetable) continue;
+        const d = (r.x - e.x) ** 2 + (r.z - e.z) ** 2;
+        if (d < bd) {
+          bd = d;
+          best = r;
+        }
+      }
+    return best || p;
   }
 
   setQuality(q) {
@@ -134,6 +157,7 @@ export class Game {
       this.player.disposeTrails();
     }
     this.player = p;
+    this.net.attachPlayer(p);
     this.applyShadows(p.mesh);
     this.scene.add(p.mesh);
     this.scene.add(p.shadow);
@@ -186,10 +210,67 @@ export class Game {
     this.giveStarterWeapon(this.player);
     this.floor = 0;
     this.runTime = 0;
+    this.catchUp = 0;
     this.loadFloor(1);
     this.state = 'skillpick';
     this.input.reset();
     this.offerRewards(true);
+    this.net.onRunStarted();
+  }
+
+  // Multiplayer: join the host's run on whatever floor they are on.
+  startClientRun(w) {
+    this.inRun = true;
+    this.combo = 0;
+    this.comboT = 0;
+    this.bestCombo = 0;
+    const cls = this.pendingClass || this.player?.clsId || 'knight';
+    this.setPlayer(new Player(this, cls));
+    this.giveStarterWeapon(this.player);
+    this.runTime = 0;
+    this.ui.hideScreens?.();
+    this.ui.hidePause?.();
+    this.ui.hideSkillPick?.();
+    this.ui.showHUD();
+    this.loadFloor(w.floor, false, w.seed);
+    const p = this.player;
+    if (typeof w.x === 'number' && !this.dungeon.blocked(w.x, w.z, p.radius, 1)) {
+      p.x = w.x + 0.8;
+      p.z = w.z + 0.8;
+      if (this.dungeon.blocked(p.x, p.z, p.radius, 1)) {
+        p.x = w.x;
+        p.z = w.z;
+      }
+    }
+    // catch up with the skills the rest of the party picked on earlier floors
+    this.catchUp = Math.max(0, w.floor - 1);
+    this.state = 'skillpick';
+    this.input.reset();
+    this.offerRewards(true);
+    this.ui.refreshSkills(p);
+  }
+
+  gameOver() {
+    if (this.state === 'dead') return;
+    this.state = 'dead';
+    this.ui.hidePause?.();
+    this.ui.hideSkillPick?.();
+    setTimeout(() => this.showDeath(), 1200);
+  }
+
+  revivePlayer() {
+    const p = this.player;
+    p.dead = false;
+    p.hp = Math.max(1, Math.round(p.final.maxHp * 0.35));
+    p.invuln = 2;
+    const an = p.model.animator;
+    an.stop(null, 0.1);
+    an.play('Skeletons_Awaken_Floor', { speed: 1.5, dur: 1.5, fadeIn: 0.05, fadeOut: 0.3 });
+    this.effects.ring(p.x, p.z, 2.5, 0x9fe8ff, 0.5, p.y + 0.1);
+    this.effects.burst(p.x, p.y + 1, p.z, 0x9fe8ff, 20, 5, 0.14, 0.6);
+    sfx.heal();
+    this.ui.toast('Revived!', 1.6, '#9fe8ff');
+    this.downToast = false;
   }
 
   clearFloor() {
@@ -211,10 +292,13 @@ export class Game {
     this.effects.clear();
   }
 
-  loadFloor(n, quiet = false) {
+  loadFloor(n, quiet = false, seed = null) {
     this.clearFloor();
     this.floor = n;
-    const dg = new Dungeon(n, (Math.random() * 2 ** 31) | 0);
+    this.floorSeed = seed ?? (Math.random() * 2 ** 31) | 0;
+    this.nextSeed = null;
+    this.enterSent = false;
+    const dg = new Dungeon(n, this.floorSeed);
     this.dungeon = dg;
     const levelGroup = dg.buildMeshes(this.quality);
     levelGroup.userData.isLevel = true;
@@ -241,6 +325,16 @@ export class Game {
     p.resetState();
     p.x = s.x;
     p.z = s.z;
+    // party members fan out around the start instead of stacking up
+    if (this.net.mode && this.net.myId) {
+      const a = this.net.myId * 2.1;
+      const nx = s.x + Math.sin(a) * 1.5;
+      const nz = s.z + Math.cos(a) * 1.5;
+      if (!dg.blocked(nx, nz, p.radius, 1)) {
+        p.x = nx;
+        p.z = nz;
+      }
+    }
     const ex = dg.worldCenter(dg.exitRoom);
     p.heading = Math.atan2(ex.x - s.x, ex.z - s.z);
     this.showcaseHeading = p.heading;
@@ -248,20 +342,30 @@ export class Game {
     this.cam.pitch = 0.38;
     this.cam.pos.set(p.x - Math.sin(p.heading) * 6, 4, p.z - Math.cos(p.heading) * 6);
 
-    for (const sp of dg.spawns) this.spawnEnemy(sp.type, sp.x, sp.z, false, sp.elite, { dormant: sp.dormant });
+    // in multiplayer the host owns the monsters; clients get them over the network
+    if (!this.net.isClient) for (const sp of dg.spawns) this.spawnEnemy(sp.type, sp.x, sp.z, false, sp.elite, { dormant: sp.dormant });
     for (const c of dg.chests) this.spawnChest(c.x, c.z);
-    for (const pt of dg.pots) this.spawnPot(pt.x, pt.z);
+    dg.pots.forEach((pt, i) => this.spawnPot(pt.x, pt.z, i));
     for (const tr of dg.traps || []) this.spawnTrap(tr);
     this.spawnPortal(ex.x, ex.z);
     this.flowTimer = 0;
     this.revealTimer = 0;
 
     if (!quiet) this.ui.toast(dg.isBoss ? `Floor ${n} — ☠ Boss Lair ☠` : `Floor ${n} — ${th.name}`, 2.5);
+    if (this.net.isClient && this.inRun) this.net.send('sync', { f: n });
+    if (this.net.mode && this.player && this.player.hp <= 0) this.player.hp = Math.round(this.player.final.maxHp * 0.35);
   }
 
   // --------------------------------------------------------------- spawning
   spawnEnemy(type, x, z, aggro = false, elite = false, opts = {}) {
     const e = new Enemy(this, type, x, z, this.floor, elite, opts);
+    e.id = ++this.enemySeq;
+    // tougher monsters for bigger parties
+    if (this.net.live) {
+      const k = 1 + 0.55 * (this.net.playerCount - 1);
+      e.maxHp *= k;
+      e.hp *= k;
+    }
     e.aggro = e.aggro || aggro;
     this.enemies.push(e);
     this.applyShadows(e.mesh);
@@ -271,7 +375,35 @@ export class Game {
       this.boss = e;
       e.aggro = false;
     }
+    this.net.onEnemySpawned(e);
     return e;
+  }
+
+  // Client: a monster the host is simulating, mirrored here.
+  spawnPuppet(s) {
+    if (!ENEMY_TYPES[s.type] || this.enemies.some((e) => e.id === s.id) || this.corpses.some((e) => e.id === s.id)) return null;
+    const e = new Enemy(this, s.type, s.x, s.z, this.floor, !!s.elite, { puppet: true, affixes: s.af, dormant: !!s.dormant, mimic: !!s.mimic, rise: !!s.rise });
+    e.id = s.id;
+    e.maxHp = s.hp;
+    e.hp = s.cur ?? s.hp;
+    e.summoned = !!s.sum;
+    e.heading = s.h || 0;
+    this.enemies.push(e);
+    this.applyShadows(e.mesh);
+    this.scene.add(e.mesh);
+    e.render(0);
+    if (e.def.boss) this.boss = e;
+    return e;
+  }
+
+  // Client: the host says this monster died.
+  puppetKilled(e, fromX, fromZ, loot = true) {
+    e.alive = false;
+    e.startDeath(fromX ?? e.x, fromZ ?? e.z);
+    this.corpses.push(e);
+    if (loot) this.enemyDeathLocal(e);
+    if (e.def.boss) this.boss = null;
+    this.enemies = this.enemies.filter((x) => x !== e);
   }
 
   // Necromancy (Skeleton Mage, Bone King): stand fallen skeletons back up, and claw
@@ -290,6 +422,7 @@ export class Game {
       this.corpses.splice(this.corpses.indexOf(c), 1);
       c.resurrect();
       this.enemies.push(c);
+      if (this.net.live) this.net.broadcast('erez', { id: c.id });
       fx.ring(c.x, c.z, 1.4, 0x9a66ff, 0.5);
       raised++;
     }
@@ -322,8 +455,10 @@ export class Game {
 
   spawnChest(x, z, rich = false) {
     // from floor 2 some chests have teeth
-    if (!rich && this.floor >= 2 && rng.next() < 0.15 + Math.min(0.1, this.floor * 0.01)) {
-      this.spawnEnemy('mimic', x, z, false, false, { mimic: true });
+    // (decided from the position so every player in a session agrees)
+    const roll = Math.abs(Math.sin(x * 12.9898 + z * 78.233 + this.floor * 37.719) * 43758.5453) % 1;
+    if (!rich && this.floor >= 2 && roll < 0.15 + Math.min(0.1, this.floor * 0.01)) {
+      if (!this.net.isClient) this.spawnEnemy('mimic', x, z, false, false, { mimic: true });
       return;
     }
     const name = rich ? 'chest_gold' : 'chest';
@@ -340,7 +475,7 @@ export class Game {
   }
 
   // Breakables: barrels and crates that burst into gold, potions or splinters.
-  spawnPot(x, z) {
+  spawnPot(x, z, id = -1) {
     const kinds = [
       ['barrel_small', 0.66],
       ['box_small', 0.62],
@@ -356,7 +491,7 @@ export class Game {
     g.position.set(x, 0, z);
     g.rotation.y = rng.next() * 6;
     this.scene.add(g);
-    this.pots.push({ x, z, mesh: g });
+    this.pots.push({ x, z, mesh: g, id });
   }
 
   // Spike trap: a whole floor tile of spikes on a cycle (warning rattle, then up).
@@ -411,6 +546,7 @@ export class Game {
           }
         }
       }
+      if (this.net.isClient) continue;
       for (const e of this.enemies) {
         if (!e.alive || e.def.hover || e.def.boss || tr.hit.has(e) || !inside(e)) continue;
         tr.hit.add(e);
@@ -464,7 +600,8 @@ export class Game {
     pt.runeMat.emissive.setHex(0x9d7dff);
     pt.light.intensity = 6;
     sfx.portal();
-    this.ui.toast(this.dungeon.isBoss ? 'The Warden falls! Portal open' : 'Floor cleared! Find the portal ✦', 2.5);
+    this.ui.toast(this.dungeon.isBoss ? 'The Bone King falls! Portal open' : 'Floor cleared! Find the portal ✦', 2.5);
+    if (this.net.isHost && this.net.live) this.net.broadcast('portal', { f: this.floor });
   }
 
   dropGold(x, z, amount) {
@@ -626,7 +763,22 @@ export class Game {
     pr.mesh.rotation.y = pr.heading;
     this.scene.add(pr.mesh);
     this.projectiles.push(pr);
+    if (this.fxCtx === 'local' && this.net.live) this.net.outShoot.push({ kind: o.kind, x: pr.x, y: pr.y, z: pr.z, h: pr.heading, sp: pr.speed, life: pr.life, r: pr.radius, b: o.boomerang ? 1 : 0 });
     return pr;
+  }
+
+  // Another player's projectile: looks the same, hits nothing here.
+  shootGhost(o, owner) {
+    const pr = { owner: 'ghost', kind: o.kind, x: o.x, y: o.y, z: o.z, heading: o.h, speed: o.sp, life: o.life, maxLife: o.life, radius: o.r, boomerang: !!o.b, returnTo: owner };
+    pr.mesh = this.projectileMesh(o.kind, o.kind === 'orb' ? pr.radius / 1.5 : 1);
+    pr.mesh.position.set(pr.x, pr.y, pr.z);
+    this.scene.add(pr.mesh);
+    this.projectiles.push(pr);
+  }
+
+  // Another player's ground effect (rain, poison, totem…): visuals only.
+  zoneGhost(o, owner) {
+    this.zone({ kind: o.kind, x: o.x, z: o.z, r: o.r, life: o.life, delay: o.delay || 0, follow: o.fol && owner ? owner : null, ghost: true });
   }
 
   spawnEnemyProjectile(x, y, z, heading, speed, dmg, kind) {
@@ -647,6 +799,7 @@ export class Game {
     m.rotation.y = heading;
     this.scene.add(m);
     this.projectiles.push({ owner: 'enemy', kind, x, y, z, heading, speed, dmg, life: 3, mesh: m });
+    if (this.net.isHost && this.net.live) this.net.broadcast('eproj', { f: this.floor, x, y, z, h: heading, sp: speed, dmg, k: kind });
   }
 
   explodeAt(pr, x, z) {
@@ -671,11 +824,12 @@ export class Game {
 
   // ------------------------------------------------------- zones and timers
   schedule(delay, fn) {
-    this.timers.push({ t: delay, fn });
+    this.timers.push({ t: delay, fn, ctx: this.fxCtx });
   }
 
   zone(o) {
-    const z = { t: 0, tickT: 0, delay: 0, arm: 0, started: false, ...o };
+    const z = { t: 0, tickT: 0, delay: 0, arm: 0, started: false, ctx: this.fxCtx, ...o };
+    if (this.fxCtx === 'local' && this.net.live && o.kind && !o.ghost) this.net.outZone.push({ kind: o.kind, x: o.x, z: o.z, r: o.r, life: o.life, delay: o.delay || 0, fol: o.follow === this.player ? 1 : 0 });
     const g = new THREE.Group();
     g.position.set(z.x, 0.05, z.z);
     const mats = [];
@@ -736,7 +890,9 @@ export class Game {
       tm.t -= dt;
       if (tm.t <= 0) {
         this.timers.splice(i, 1);
+        this.fxCtx = tm.ctx;
         tm.fn();
+        this.fxCtx = null;
       }
     }
     for (let i = this.zones.length - 1; i >= 0; i--) {
@@ -748,7 +904,8 @@ export class Game {
         z.mesh.position.set(z.x, 0.05, z.z);
       }
       let done = z.t >= z.life + z.delay;
-      if (z.t >= z.delay) {
+      this.fxCtx = z.ctx;
+      if (z.t >= z.delay && !z.ghost) {
         if (!z.started) {
           z.started = true;
           if (z.onStart) z.onStart(z);
@@ -773,6 +930,7 @@ export class Game {
         if (Math.random() < 0.5) this.effects.smoke(z.x + (Math.random() - 0.5) * z.r * 1.4, z.z + (Math.random() - 0.5) * z.r * 1.4);
         if (Math.random() < 0.4) this.effects.puff(z.x + (Math.random() - 0.5) * z.r * 1.5, 0.3, z.z + (Math.random() - 0.5) * z.r * 1.5, 0x6adf3a, 0.3, 0.8);
       }
+      this.fxCtx = null;
       if (z.light) z.light.visible = z.t < z.arm || Math.floor(z.t * 3) % 2 === 0;
       if (done) {
         this.scene.remove(z.mesh);
@@ -798,6 +956,7 @@ export class Game {
 
   // Ground shockwave: hurts the player only if they are on the ground — jump over it!
   shockwave(x, z, r, dmg, src, big = false) {
+    if (this.net.isHost && this.net.live && this.fxCtx === 'enemy') this.net.broadcast('shock', { f: this.floor, x, z, r, dmg, big: big ? 1 : 0, src: src?.id ?? -1 });
     const fx = this.effects;
     fx.ring(x, z, r, big ? 0xc04dff : 0xff9955, 0.4);
     fx.ring(x, z, r * 0.6, 0xffffff, 0.3);
@@ -852,7 +1011,10 @@ export class Game {
     }
     for (let i = this.pots.length - 1; i >= 0; i--) {
       const pt = this.pots[i];
-      if (Math.hypot(pt.x - x, pt.z - z) < r + 0.3) this.breakPot(i);
+      if (Math.hypot(pt.x - x, pt.z - z) < r + 0.3) {
+        if (this.net.live) this.net.send('pot', { i: pt.id });
+        this.breakPot(i);
+      }
     }
   }
 
@@ -872,10 +1034,28 @@ export class Game {
     if (!e.alive) return;
     const p = this.player;
     let amount = hit.amount;
-    if (p.mods.execute > 0 && e.hp < e.maxHp * 0.3) amount *= 1 + p.mods.execute;
+    if (!hit.remote && p.mods.execute > 0 && e.hp < e.maxHp * 0.3) amount *= 1 + p.mods.execute;
+    // client: the host owns the monster; send the hit and show it right away
+    if (e.puppet) {
+      amount = Math.max(1, Math.round(amount));
+      this.net.send('hit', { id: e.id, a: amount, c: hit.crit ? 1 : 0, k: hit.knock || 0, l: hit.launch || 0, d: hit.dot, s: hit.silent ? 1 : 0, x: Math.round(fromX * 100) / 100, z: Math.round(fromZ * 100) / 100 });
+      e.hp = Math.max(1, e.hp - amount);
+      e.flash = 0.09;
+      if (!hit.silent) {
+        e.flinch = 0.2;
+        this.addCombo();
+        this.effects.burst(e.x, e.y + e.height * 0.5, e.z, hit.crit ? 0xffe066 : e.def.color, hit.crit ? 12 : 6, 5, 0.12, 0.35);
+        if (hit.crit) sfx.crit();
+        else sfx.hit();
+        if (hit.crit) this.hitStop(0.035);
+        if (p.final.lifesteal + p.buff.ls > 0) p.heal(amount * (p.final.lifesteal + p.buff.ls), false);
+      }
+      this.effects.damageNumber(e.x, e.y + e.height + 0.3, e.z, String(amount), hit.crit ? 'crit' : hit.dot === 'poison' ? 'poison' : hit.silent ? 'dot' : '');
+      return;
+    }
     amount = Math.max(1, Math.round(e.absorb(amount)));
     e.hp -= amount;
-    if (!hit.silent) this.addCombo();
+    if (!hit.silent && !hit.remote) this.addCombo();
     e.flash = 0.09;
     e.aggro = true;
     if (!hit.silent) e.flinch = 0.2;
@@ -896,10 +1076,12 @@ export class Game {
     if (hit.launch && !heavy) e.vy = hit.launch;
     if (!hit.silent) {
       this.effects.burst(e.x, e.y + e.height * 0.5, e.z, hit.crit ? 0xffe066 : e.def.color, hit.crit ? 12 : 6, 5, 0.12, 0.35);
-      if (hit.crit) sfx.crit();
-      else sfx.hit();
-      if (hit.crit) this.hitStop(0.035);
-      if (p.final.lifesteal + p.buff.ls > 0) p.heal(amount * (p.final.lifesteal + p.buff.ls), false);
+      if (!hit.remote) {
+        if (hit.crit) sfx.crit();
+        else sfx.hit();
+        if (hit.crit) this.hitStop(0.035);
+        if (p.final.lifesteal + p.buff.ls > 0) p.heal(amount * (p.final.lifesteal + p.buff.ls), false);
+      }
     }
     this.effects.damageNumber(e.x, e.y + e.height + 0.3, e.z, String(amount), hit.crit ? 'crit' : hit.dot === 'poison' ? 'poison' : hit.silent ? 'dot' : '');
     if (e.hp <= 0) this.killEnemy(e, fromX, fromZ);
@@ -925,6 +1107,29 @@ export class Game {
     e.alive = false;
     e.startDeath(fromX, fromZ);
     this.corpses.push(e);
+    const net = this.net.isHost && this.net.live;
+    if (net) this.net.broadcast('ekill', { id: e.id, x: Math.round(fromX * 100) / 100, z: Math.round(fromZ * 100) / 100 });
+    this.enemyDeathLocal(e);
+    if (e.def.boss) {
+      this.boss = null;
+      for (const m of this.enemies) {
+        if (m === e || !m.alive) continue;
+        m.alive = false;
+        m.startDeath(e.x, e.z);
+        this.corpses.push(m);
+        if (net) this.net.broadcast('ekill', { id: m.id, x: e.x, z: e.z, n: 1 });
+      }
+      this.enemies = [e];
+    }
+    this.enemies = this.enemies.filter((x) => x !== e);
+    if (!this.floorCleared && !this.enemies.some((x) => x.alive && !x.disguised && !x.dormant)) {
+      this.floorCleared = true;
+      this.activatePortal();
+    }
+  }
+
+  // The part of a kill every player sees for themselves: feedback and their own loot.
+  enemyDeathLocal(e) {
     const p = this.player;
     p.kills++;
     this.effects.burst(e.x, e.y + e.height * 0.5, e.z, e.def.color, 14, 5, 0.18, 0.6);
@@ -938,14 +1143,6 @@ export class Game {
       this.dropPotion(e.x, e.z);
       this.effects.shake(1);
       this.hitStop(0.25);
-      this.boss = null;
-      for (const m of this.enemies) {
-        if (m === e || !m.alive) continue;
-        m.alive = false;
-        m.startDeath(e.x, e.z);
-        this.corpses.push(m);
-      }
-      this.enemies = [e];
     } else if (e.type === 'mimic') {
       for (let i = 0; i < 2; i++) this.dropItem(e.x, e.z, generateItem(this.floor, cls, 5, 2));
       this.dropPotion(e.x, e.z);
@@ -954,15 +1151,24 @@ export class Game {
       if (rng.next() < itemChance) this.dropItem(e.x, e.z, generateItem(this.floor, cls, e.elite ? 3 : 0, e.elite ? 1 : 0));
       if (rng.next() < 0.07) this.dropPotion(e.x, e.z);
     }
-    this.enemies = this.enemies.filter((x) => x !== e);
-    if (!this.floorCleared && !this.enemies.some((x) => x.alive && !x.disguised && !x.dormant)) {
-      this.floorCleared = true;
-      this.activatePortal();
-    }
   }
 
   alertNearby(src) {
     for (const e of this.enemies) if (!e.aggro && Math.hypot(e.x - src.x, e.z - src.z) < 9) e.aggro = true;
+  }
+
+  // Another player smashed it: it just breaks (loot is per player).
+  breakPotById(id, remote = false) {
+    const i = this.pots.findIndex((pt) => pt.id === id);
+    if (i < 0) return;
+    if (remote) {
+      const pt = this.pots[i];
+      this.pots.splice(i, 1);
+      this.scene.remove(pt.mesh);
+      this.effects.burst(pt.x, 0.4, pt.z, 0x9a6b45, 18, 6, 0.16, 0.55);
+      return;
+    }
+    this.breakPot(i);
   }
 
   breakPot(i) {
@@ -994,27 +1200,43 @@ export class Game {
 
   // ----------------------------------------------------------------- update
   update(rawDt) {
+    // in a live multiplayer session the world never stops: menus just take your hands off the hero
+    const mp = this.net.live && this.inRun && this.dungeon && this.player;
     if (this.state !== 'play') {
+      if (mp && ['pause', 'upgrade', 'skillpick', 'dead'].includes(this.state)) return this.tick(rawDt, false);
       if (this.state === 'dead') {
         this.updateCorpses(rawDt);
         if (this.player) this.player.animate(rawDt);
       }
       if (this.player && this.state !== 'title' && this.state !== 'classSelect') this.updateCamera(rawDt, { x: 0, y: 0 });
+      if (this.net.mode && this.inRun) this.net.update(rawDt);
       return;
     }
+    this.tick(rawDt, true);
+  }
+
+  tick(rawDt, controls) {
     const input = this.input;
-    input.poll();
+    if (controls) input.poll();
     let dt = rawDt;
     if (this.hitStopT > 0) {
       this.hitStopT -= rawDt;
       dt = rawDt * 0.08;
     }
     this.runTime += rawDt;
-    const look = input.consumeLook();
+    const look = controls ? input.consumeLook() : { x: 0, y: 0 };
     this.updateCamera(rawDt, look);
 
     const p = this.player;
-    if (!p.dead) p.update(dt, input, this.cam);
+    this.fxCtx = 'local';
+    if (!p.dead && controls) p.update(dt, input, this.cam);
+    else {
+      p.vx = p.vz = 0;
+      p.speed = 0;
+      if (!controls) p.invuln = Math.max(p.invuln, 0.3);
+      p.animate(dt);
+    }
+    this.fxCtx = null;
     const dg = this.dungeon;
 
     this.flowTimer -= dt;
@@ -1028,8 +1250,12 @@ export class Game {
       dg.reveal(p.x, p.z);
     }
 
-    for (const e of this.enemies.slice()) if (e.alive) e.update(dt, this);
-    this.separateEnemies();
+    if (!this.net.isClient) {
+      this.fxCtx = 'enemy';
+      for (const e of this.enemies.slice()) if (e.alive) e.update(dt, this);
+      this.fxCtx = null;
+      this.separateEnemies();
+    }
     this.updateCorpses(dt);
     this.updateProjectiles(dt);
     this.updateZones(dt);
@@ -1038,10 +1264,12 @@ export class Game {
     this.updateTraps(dt);
     if (this.comboT > 0) this.comboT -= dt;
     this.updatePatches(dt);
+    this.net.update(dt);
     this.effects.update(dt);
     this.updateTorches();
 
     this.playerLight.position.set(p.x, p.y + 3, p.z);
+    if (!controls) return;
 
     this.nearItem = null;
     let bd = 2.0;
@@ -1058,8 +1286,16 @@ export class Game {
     if (input.pressed.pause) this.pause();
 
     if (p.dead && this.state === 'play') {
-      this.state = 'dead';
-      setTimeout(() => this.showDeath(), 1600);
+      if (this.net.live) {
+        // co-op: stay down until a teammate revives you (or everyone falls)
+        if (!this.downToast) {
+          this.downToast = true;
+          this.ui.toast("You're down! A teammate can revive you by standing next to you.", 3.5, '#ff8080');
+        }
+      } else {
+        this.state = 'dead';
+        setTimeout(() => this.showDeath(), 1600);
+      }
     }
     input.endFrame();
   }
@@ -1170,6 +1406,27 @@ export class Game {
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const pr = this.projectiles[i];
       pr.life -= dt;
+      if (pr.owner === 'ghost') {
+        // another player's shot: fly (and return) but hit nothing
+        if (pr.boomerang && pr.returnTo && pr.life < pr.maxLife * 0.5) {
+          const want = Math.atan2(pr.returnTo.x - pr.x, pr.returnTo.z - pr.z);
+          pr.heading += clamp(angleDiff(pr.heading, want), -9 * dt, 9 * dt);
+          if (Math.hypot(pr.returnTo.x - pr.x, pr.returnTo.z - pr.z) < 1.2) pr.life = -1;
+          else pr.life = Math.max(pr.life, 0.05);
+        }
+        pr.x += Math.sin(pr.heading) * pr.speed * dt;
+        pr.z += Math.cos(pr.heading) * pr.speed * dt;
+        pr.mesh.position.set(pr.x, pr.y, pr.z);
+        pr.mesh.rotation.y = pr.heading;
+        if ((pr.kind === 'axe' || pr.kind === 'bigaxe') && pr.mesh.children[0]) pr.mesh.children[0].rotation.x += dt * 22;
+        if (pr.life <= 0 || dg.heightAtPoint(pr.x, pr.z) > pr.y) {
+          this.scene.remove(pr.mesh);
+          pr.mesh.userData.dispose?.();
+          this.projectiles.splice(i, 1);
+        }
+        continue;
+      }
+      this.fxCtx = pr.owner === 'player' ? 'local' : null;
       if (pr.owner === 'player' && pr.homing && pr.homing.alive) {
         const want = Math.atan2(pr.homing.x - pr.x, pr.homing.z - pr.z);
         pr.heading += clamp(angleDiff(pr.heading, want), -4.5 * dt, 4.5 * dt);
@@ -1282,6 +1539,7 @@ export class Game {
         this.projectiles.splice(i, 1);
       }
     }
+    this.fxCtx = null;
   }
 
   updatePickups(dt) {
@@ -1423,8 +1681,25 @@ export class Game {
   }
 
   // ---------------------------------------------------------- state changes
-  enterPortal() {
-    if (this.state !== 'play') return;
+  // fromNet: the host acting on a client's request, or a client told to move on.
+  enterPortal(fromNet = false) {
+    const net = this.net;
+    if (net.isClient && !fromNet) {
+      // clients ask the host; everyone moves on together
+      if (!this.enterSent) {
+        this.enterSent = true;
+        net.send('enter');
+        this.ui.toast('Portal! Taking the party down…', 2);
+      }
+      return;
+    }
+    if (this.state !== 'play' && !fromNet) return;
+    if (net.isHost && net.live) {
+      this.nextSeed = (Math.random() * 2 ** 31) | 0;
+      net.broadcast('next', { f: this.floor + 1, seed: this.nextSeed });
+    }
+    if (this.state === 'upgrade' || this.state === 'skillpick') return;
+    this.ui.hidePause?.();
     sfx.portal();
     this.state = 'upgrade';
     this.input.reset();
@@ -1432,6 +1707,16 @@ export class Game {
     this.rerolls = 0;
     this.shrine = rollBlessings(this.player, 2).map((b) => ({ b, sold: false }));
     this.offerRewards(false);
+  }
+
+  // Client: the host moved the party to the next floor.
+  beginNextFloor(f, seed) {
+    if (!this.inRun || this.state === 'dead') return;
+    this.nextSeed = seed;
+    this.nextFloor = f;
+    if (this.state === 'upgrade' || this.state === 'skillpick') return;
+    if (this.player.dead) this.revivePlayer();
+    this.enterPortal(true);
   }
 
   // Skill choices: a new skill (while a swipe slot is free), a level-up, or
@@ -1461,7 +1746,7 @@ export class Game {
     return shuffle(out.slice(0, 3)).map(mk);
   }
 
-  offerRewards(first, keep = null) {
+  offerRewards(first, keep = null, advance = !first) {
     const p = this.player;
     const offers = keep || this.skillOffers(first);
     this.currentOffers = offers;
@@ -1470,7 +1755,15 @@ export class Game {
     const blessingCost = 30 + this.floor * 12;
     const proceed = () => {
       this.ui.hideSkillPick();
-      if (!first) this.loadFloor(this.floor + 1);
+      // joining mid-run: one more pick per floor the party already cleared
+      if (this.catchUp > 0) {
+        this.catchUp--;
+        this.shrine = rollBlessings(p, 2).map((b) => ({ b, sold: false }));
+        this.offerRewards(false, null, false);
+        return;
+      }
+      if (advance) this.loadFloor(this.nextFloor ?? this.floor + 1, false, this.nextSeed);
+      this.nextFloor = null;
       this.state = 'play';
       this.input.reset();
       this.ui.refreshSkills(p);
@@ -1507,21 +1800,21 @@ export class Game {
         p.applyUpgrade(entry.b);
         entry.sold = true;
         sfx.heal();
-        this.offerRewards(first, offers);
+        this.offerRewards(first, offers, advance);
       },
       onHeal: () => {
         if (p.gold < healCost || p.hp >= p.final.maxHp) return;
         p.gold -= healCost;
         p.hp = p.final.maxHp;
         sfx.heal();
-        this.offerRewards(first, offers);
+        this.offerRewards(first, offers, advance);
       },
       onReroll: () => {
         if (p.gold < rerollCost) return;
         p.gold -= rerollCost;
         this.rerolls = (this.rerolls || 0) + 1;
         sfx.ui();
-        this.offerRewards(first);
+        this.offerRewards(first, null, advance);
       },
     });
   }
@@ -1547,7 +1840,9 @@ export class Game {
     const newBest = this.floor > best.floor || (this.floor === best.floor && p.kills > best.kills);
     if (newBest) saveBest({ floor: this.floor, kills: p.kills, cls: p.clsId });
     if (document.pointerLockElement) document.exitPointerLock();
-    this.ui.showDeath({ floor: this.floor, kills: p.kills, gold: p.gold, time: this.runTime, cls: p.cls.name, newBest, best: newBest ? { floor: this.floor, kills: p.kills } : best });
+    const n = this.net;
+    const mp = n.isHost && n.live ? 'Your party fell. Play again to start a new run together.' : n.isClient ? 'Your party fell. Pick a hero with Play again to join the host\'s next run.' : '';
+    this.ui.showDeath({ floor: this.floor, kills: p.kills, gold: p.gold, time: this.runTime, cls: p.cls.name, newBest, best: newBest ? { floor: this.floor, kills: p.kills } : best, mp });
   }
 
   resize(w, h) {

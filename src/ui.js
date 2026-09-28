@@ -53,7 +53,7 @@ export class UI {
   }
 
   hideScreens() {
-    for (const id of ['title', 'classSelect', 'skillPick', 'pause', 'death']) this.hide(id);
+    for (const id of ['title', 'mp', 'classSelect', 'skillPick', 'pause', 'death']) this.hide(id);
   }
 
   showTitle(best) {
@@ -429,7 +429,100 @@ export class UI {
     const secs = Math.floor(s.time % 60)
       .toString()
       .padStart(2, '0');
+    $('deathMp').classList.toggle('hidden', !s.mp);
+    $('deathMp').textContent = s.mp || '';
     $('deathStats').innerHTML = `The ${s.cls} reached <b>floor ${s.floor}</b><br>Slain <b>${s.kills}</b> monsters · Gathered <b>${s.gold}</b> gold<br>Time <b>${mins}:${secs}</b><br>${s.newBest ? '<b style="color:#ffcf5a">★ New best! ★</b>' : `Best: floor ${s.best.floor}`}`;
+  }
+
+  // ----------------------------------------------------------- multiplayer
+  // view: 'choose' | 'host' | 'join'
+  showMultiplayer(view, o = {}) {
+    this.hud.classList.add('hidden');
+    this.hideScreens();
+    this.show('mp');
+    for (const [id, v] of [['mpChoose', 'choose'], ['mpHost', 'host'], ['mpJoin', 'join']]) $(id).classList.toggle('hidden', view !== v);
+    if (view === 'host') {
+      $('mpPin').textContent = o.pin ? o.pin.replace(/(\d{3})(\d{3})/, '$1 $2') : '······';
+      $('mpHostGo').disabled = !o.pin;
+    }
+    if (view === 'join') {
+      this.setPin('');
+      setTimeout(() => !this.isTouch && $('pinInput').focus(), 50);
+    }
+    this.mpStatus(o.status || '');
+  }
+
+  mpStatus(msg, bad = false) {
+    for (const id of ['mpHostStatus', 'mpJoinStatus']) {
+      $(id).textContent = msg;
+      $(id).classList.toggle('bad', bad);
+    }
+  }
+
+  setPin(v) {
+    this.pin = v.replace(/\D/g, '').slice(0, 6);
+    $('pinInput').value = this.pin;
+    [...$('pinBoxes').children].forEach((el, i) => {
+      el.textContent = this.pin[i] || '';
+      el.classList.toggle('on', i === this.pin.length);
+    });
+    $('mpJoinGo').disabled = this.pin.length !== 6;
+  }
+
+  bindMultiplayer(h) {
+    $('mpBtn').onclick = h.open;
+    $('mpBackBtn').onclick = h.back;
+    $('mpHostBtn').onclick = h.host;
+    $('mpJoinBtn').onclick = () => this.showMultiplayer('join');
+    $('mpHostGo').onclick = h.hostGo;
+    $('mpHostCancel').onclick = h.cancel;
+    $('mpJoinCancel').onclick = h.cancel;
+    $('mpJoinGo').onclick = () => this.pin.length === 6 && h.join(this.pin);
+    $('pinInput').oninput = (e) => this.setPin(e.target.value);
+    $('pinInput').onkeydown = (e) => {
+      if (e.key === 'Enter' && this.pin.length === 6) h.join(this.pin);
+      e.stopPropagation();
+    };
+    const pad = $('pinPad');
+    pad.innerHTML = '';
+    for (const k of ['1', '2', '3', '4', '5', '6', '7', '8', '9', '⌫', '0', 'OK']) {
+      const b = document.createElement('button');
+      b.textContent = k;
+      b.className = k === 'OK' ? 'ok' : '';
+      b.onclick = () => {
+        if (k === '⌫') this.setPin(this.pin.slice(0, -1));
+        else if (k === 'OK') this.pin.length === 6 && h.join(this.pin);
+        else this.setPin(this.pin + k);
+      };
+      pad.appendChild(b);
+    }
+    this.pin = '';
+  }
+
+  // Party list in the HUD (null hides it).
+  setParty(p) {
+    const el = $('party');
+    if (!p) {
+      el.classList.add('hidden');
+      $('pauseMp').classList.add('hidden');
+      this.partyKey = null;
+      return;
+    }
+    const key = JSON.stringify(p);
+    if (key === this.partyKey) return;
+    this.partyKey = key;
+    el.classList.remove('hidden');
+    el.innerHTML =
+      `<div class="pin">${p.host ? 'Hosting' : 'Joined'} · PIN <b>${esc(p.pin || '')}</b></div>` +
+      p.list
+        .map(
+          (m) =>
+            `<div class="member${m.dead ? ' down' : ''}${m.away ? ' away' : ''}"><span>${CLASSES[m.cls]?.icon || ''} ${esc(m.name)}${m.dead ? ' ✖' : m.away ? ' …' : ''}</span><div class="mbar"><i style="width:${Math.round(Math.max(0, Math.min(1, m.hp)) * 100)}%"></i></div></div>`,
+        )
+        .join('');
+    const pm = $('pauseMp');
+    pm.classList.toggle('hidden', false);
+    pm.textContent = `Multiplayer · PIN ${p.pin} · ${p.list.length} player${p.list.length > 1 ? 's' : ''} · the dungeon keeps going while you're in menus`;
   }
 
   bindMenus(handlers) {

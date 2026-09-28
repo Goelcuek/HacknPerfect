@@ -199,6 +199,7 @@ export class Player {
   dress() {
     this.disposeTrails();
     dressHero(this.model, this.equipment);
+    this.game.net?.onLocalLook(this);
     if (this.game.applyShadows) this.game.applyShadows(this.mesh);
   }
 

@@ -90,6 +90,7 @@ function cycleQuality() {
 let chosenClass = 'knight';
 
 function toTitle() {
+  if (game.net.mode) game.net.leave();
   game.state = 'title';
   game.setupBackdrop(chosenClass);
   ui.showTitle(loadBest());
@@ -112,6 +113,13 @@ function toClassSelect() {
 
 function startRun() {
   initAudio();
+  if (game.net.isClient) {
+    // joining: the host answers with the floor to drop into
+    game.pendingClass = chosenClass;
+    game.net.sendHello(chosenClass);
+    ui.toast('Joining the host…', 3);
+    return;
+  }
   ui.showHUD();
   game.startRun(chosenClass);
   ui.refreshSkills(game.player);
@@ -132,6 +140,44 @@ ui.bindMenus({
   pause: () => game.pause(),
   quality: cycleQuality,
 });
+// ---- multiplayer lobby
+game.net.onStatus = (msg) => {
+  ui.mpStatus(msg);
+  if (game.state === 'classSelect') ui.toast(msg, 3);
+};
+ui.bindMultiplayer({
+  open: () => {
+    initAudio();
+    ui.showMultiplayer('choose');
+  },
+  back: toTitle,
+  host: async () => {
+    ui.showMultiplayer('host', { status: 'Opening a game…' });
+    try {
+      const pin = await game.net.host();
+      ui.showMultiplayer('host', { pin, status: 'Ready! Friends can join now — or later, mid-run.' });
+    } catch (e) {
+      ui.showMultiplayer('host', {});
+      ui.mpStatus(e.message, true);
+    }
+  },
+  hostGo: toClassSelect,
+  cancel: () => {
+    game.net.leave();
+    ui.showMultiplayer('choose');
+  },
+  join: async (pin) => {
+    ui.mpStatus('Connecting…');
+    try {
+      await game.net.join(pin);
+      toClassSelect();
+      ui.toast('Connected! Choose your hero', 2.5, '#9fe8ff');
+    } catch (e) {
+      ui.mpStatus(e.message, true);
+    }
+  },
+});
+
 game.quality = null;
 const loadEl = document.getElementById('loading');
 loadAssets((f) => {

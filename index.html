@@ -8,6 +8,8 @@
     <meta name="theme-color" content="#0b0d14" />
     <title>Hack n Perfect</title>
     <link rel="stylesheet" href="style.css" />
+    <!-- WebRTC peer-to-peer for multiplayer (PeerJS, MIT) -->
+    <script src="./vendor/peerjs.min.js"></script>
     <script type="importmap">
       { "imports": { "three": "./vendor/three.module.min.js", "three/addons/": "./vendor/addons/" } }
     </script>
@@ -34,6 +36,7 @@
         </div>
       </div>
       <canvas id="minimap" width="160" height="160"></canvas>
+      <div id="party" class="hidden"></div>
       <button id="pauseBtn" class="ui-block" data-btn="pause" aria-label="Pause">❚❚</button>
 
       <div id="bossbar" class="hidden">
@@ -73,6 +76,7 @@
         <h1>HACK<span>n</span>PERFECT</h1>
         <p class="subtitle">Descend the dungeon. Loot everything. Don't die.</p>
         <button id="playBtn" class="primary">▶ Play</button>
+        <button id="mpBtn" class="primary alt">👥 Multiplayer</button>
         <button id="qualityBtn" class="secondary small">Graphics: High</button>
         <p id="bestText"></p>
         <div class="controls">
@@ -83,6 +87,40 @@
           <div class="touch-only">
             Left side: move · Right side: drag camera<br />
             Tap <b>⚔</b> to attack · <b>Swipe ⚔</b> ↑ → ↓ ← for skills
+          </div>
+        </div>
+      </div>
+
+      <div id="mp" class="screen ui-block hidden">
+        <div class="mp-panel">
+          <h2>Multiplayer</h2>
+          <div id="mpChoose">
+            <p class="subtitle">Up to 4 players, co-op. The host's game runs the dungeon; friends join with a PIN.</p>
+            <div class="mp-choices">
+              <button id="mpHostBtn" class="mp-choice"><b>🏰 Host a game</b><small>Get a PIN to share</small></button>
+              <button id="mpJoinBtn" class="mp-choice"><b>🔑 Join a game</b><small>Enter a friend's PIN</small></button>
+            </div>
+            <button id="mpBackBtn" class="secondary">Back</button>
+          </div>
+          <div id="mpHost" class="hidden">
+            <p class="subtitle">Share this PIN. Friends can join any time, even mid-run.</p>
+            <div id="mpPin" class="pin-big">······</div>
+            <p id="mpHostStatus" class="mp-status"></p>
+            <div class="row-buttons">
+              <button id="mpHostGo" class="primary" disabled>Choose your hero</button>
+              <button id="mpHostCancel" class="secondary">Cancel</button>
+            </div>
+          </div>
+          <div id="mpJoin" class="hidden">
+            <p class="subtitle">Enter the host's 6-digit PIN</p>
+            <div id="pinBoxes" class="pin-boxes"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+            <input id="pinInput" inputmode="numeric" autocomplete="off" maxlength="6" aria-label="PIN" />
+            <div id="pinPad" class="pin-pad"></div>
+            <p id="mpJoinStatus" class="mp-status"></p>
+            <div class="row-buttons">
+              <button id="mpJoinGo" class="primary" disabled>Join</button>
+              <button id="mpJoinCancel" class="secondary">Back</button>
+            </div>
           </div>
         </div>
       </div>
@@ -117,6 +155,7 @@
 
       <div id="pause" class="screen ui-block hidden">
         <h2>Paused</h2>
+        <p id="pauseMp" class="mp-status hidden"></p>
         <div id="gear"></div>
         <div id="pauseSkills" class="loadout"></div>
         <div id="statList"></div>
@@ -131,6 +170,7 @@
       <div id="death" class="screen ui-block hidden">
         <h2 class="red">You have fallen</h2>
         <div id="deathStats"></div>
+        <p id="deathMp" class="mp-status hidden"></p>
         <button id="againBtn" class="primary">Play again</button>
         <button id="titleBtn" class="secondary">Title</button>
       </div>

@@ -139,7 +139,9 @@ export class Enemy {
     this.casts = 0;
     this.affixes = [];
     this.shieldHp = 0;
-    if (elite) this.rollAffixes(floor);
+    // multiplayer clients mirror monsters the host simulates ("puppets")
+    this.puppet = !!o.puppet;
+    if (elite) this.rollAffixes(floor, Array.isArray(o.affixes) ? o.affixes.filter((a) => AFFIXES[a]) : null);
     this.buildMesh();
     // skeletons can lie dormant as bone piles, or claw their way out of the ground
     if (o.rise) this.startRise();
@@ -147,10 +149,11 @@ export class Enemy {
     if (o.mimic) this.disguised = true;
   }
 
-  rollAffixes(floor) {
+  rollAffixes(floor, given = null) {
     const n = floor >= 5 ? 2 : 1;
     const pool = AFFIX_IDS.slice();
-    for (let i = 0; i < n && pool.length; i++) this.affixes.push(pool.splice(Math.floor(rng.next() * pool.length), 1)[0]);
+    if (given && given.length) this.affixes = given.slice(0, 2);
+    else for (let i = 0; i < n && pool.length; i++) this.affixes.push(pool.splice(Math.floor(rng.next() * pool.length), 1)[0]);
     const has = (a) => this.affixes.includes(a);
     if (has('swift')) this.speedMul = 1.45;
     if (has('frenzied')) this.tempo = 0.6;
@@ -160,6 +163,7 @@ export class Enemy {
 
   // ---------------------------------------------------------------- status
   status(s) {
+    if (this.puppet) this.game.net.send('status', { id: this.id, s });
     const boss = this.def.boss;
     if (s.stun) this.stun = Math.max(this.stun, boss ? s.stun * 0.3 : s.stun);
     if (s.freeze) this.freeze = Math.max(this.freeze, boss ? Math.min(0.8, s.freeze) : s.freeze);
@@ -387,7 +391,9 @@ export class Enemy {
 
   // ------------------------------------------------------------------ update
   update(dt, game) {
-    const p = game.player;
+    // chase whoever is closest (every player, in multiplayer)
+    const p = game.targetFor ? game.targetFor(this) : game.player;
+    this.lookTarget = p;
     const dg = game.dungeon;
     const def = this.def;
     this.animT += dt;
@@ -628,7 +634,7 @@ export class Enemy {
   }
 
   performAttack(game, dist) {
-    const p = game.player;
+    const p = this.lookTarget || game.player;
     const dmg = this.def.dmg * this.dmgMul;
     if (this.type === 'grunt' || this.type === 'mimic') {
       this.lunge = this.type === 'mimic' ? 0.16 : 0.12;
@@ -665,7 +671,7 @@ export class Enemy {
   }
 
   checkLungeHit(game) {
-    const p = game.player;
+    const p = this.lookTarget || game.player;
     const reach = this.def.range + this.radius;
     const dx = p.x - this.x;
     const dz = p.z - this.z;
@@ -720,7 +726,7 @@ export class Enemy {
   }
 
   bossUpdate(dt, game) {
-    const p = game.player;
+    const p = this.lookTarget || game.player;
     const dmg = this.def.dmg * this.dmgMul;
     if (this.state === 'bosswind') {
       this.stateT += dt;
@@ -881,20 +887,21 @@ export class Enemy {
 
     // leave windup/aim loops when the state machine moves on
     const st = this.state;
-    if (st !== this.lastState) {
+    // (puppets get these animation calls from the host instead)
+    if (st !== this.lastState && !this.puppet) {
       if (this.lastState === 'windup' && st !== 'attack') an.stop(null, 0.2);
       if (st === 'chase' && (this.type === 'archer' || this.type === 'mage')) an.stop(null, 0.25);
       if (this.lastState === 'bossact' || (this.lastState === 'bosswind' && st === 'chase')) an.stop(null, 0.3);
       this.lastState = st;
     }
-    if (this.flinch > 0.18 && !this.flinched) an.play(Math.random() < 0.5 ? 'Hit_A' : 'Hit_B', { part: 'upper', dur: 0.35, weight: 0.8, keep: true, fadeIn: 0.03 });
+    if (this.flinch > 0.18 && !this.flinched && !this.puppet) an.play(Math.random() < 0.5 ? 'Hit_A' : 'Hit_B', { part: 'upper', dur: 0.35, weight: 0.8, keep: true, fadeIn: 0.03 });
     this.flinched = this.flinch > 0.18;
 
     model.update(dt);
 
     // head tracks the player; dazed enemies wobble
     if (this.aggro && !this.rising && st !== 'windup' && st !== 'bosswind') {
-      const p = this.game.player;
+      const p = this.lookTarget || this.game.player;
       this.lookA = (this.lookA || 0) + (clamp(angleDiff(this.heading, Math.atan2(p.x - this.x, p.z - this.z)), -1, 1) - (this.lookA || 0)) * Math.min(1, dt * 5);
       model.look(this.lookA * 0.6);
     }

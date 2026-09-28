@@ -22,6 +22,36 @@ Any static file host works (GitHub Pages, Netlify, itch.io…). A GitHub Pages w
 in `.github/workflows/pages.yml`. Turn it on under **Settings → Pages → Source: GitHub Actions**
 and it deploys on every push to `main`.
 
+## Multiplayer (co-op, up to 4 players)
+
+1. **Host:** on the title screen choose **Multiplayer → Host a game**. You get a 6-digit **PIN**.
+   Share it, then choose your hero and enter the dungeon.
+2. **Friends:** **Multiplayer → Join a game**, type the PIN, pick a hero. They drop in next to the
+   host on the host's current floor (with one skill pick per floor they missed), and can join at
+   any time during the run.
+
+How it works: players connect directly to each other with WebRTC ([PeerJS](https://peerjs.com)).
+The free PeerJS cloud server is only used to find the host by its PIN; if a network blocks direct
+connections, PeerJS's TURN servers relay the traffic. The host's game is the authority for the
+dungeon, the monsters, the portal and floor changes; every player moves and fights with their own
+hero locally (so controls feel instant) and sends hits to the host. Skills, projectiles, ground
+effects and animations are mirrored on everyone's screen.
+
+Co-op rules:
+
+- **Loot is per player:** every kill, chest and barrel drops loot for each player separately.
+- **Tougher monsters:** +55% health per extra player.
+- **Revive:** a downed player gets back up after a teammate stands next to them for 2.5 seconds.
+  The run ends only when everyone is down.
+- **Portal:** anyone stepping into the open portal takes the whole party to the next floor
+  (everyone gets their own reward screen).
+- **No pause:** the dungeon keeps running while you are in a menu (you can't be hit meanwhile).
+
+Notes: the host should keep the game in the foreground (browsers throttle background tabs, which
+freezes the world for everyone). To use your own signalling server instead of the PeerJS cloud,
+run `npx peer --port 9000` and open the game with `?signal=your-server:9000` (add `&secure=1`
+for HTTPS).
+
 ## Android APK
 
 `android/` is a small native app that runs the game full-screen in a WebView, locked to
@@ -180,6 +210,8 @@ Use **Graphics** on the title or pause screen to switch quality:
 | `src/items.js`    | Item generation, rarities, affixes, shrine blessings            |
 | `src/input.js`    | Keyboard / mouse / touch (joystick, swipe-to-skill)             |
 | `src/ui.js`       | HUD, minimap, loot card, class select, skill picks, menus       |
+| `src/net.js`      | Multiplayer: PIN hosting/joining, protocol, enemy sync, revive  |
+| `src/remote.js`   | Other players' heroes, interpolated and animated from the network |
 | `src/effects.js`  | Particles, slashes, rings, lightning, meteors, damage numbers   |
 | `src/audio.js`    | Synthesized WebAudio sound effects                              |
 | `assets/models/`  | Optimised KayKit characters, animation library, gear and props  |
@@ -189,4 +221,5 @@ Use **Graphics** on the title or pause screen to switch quality:
 
 Characters, animations, weapons and dungeon props: **KayKit** Adventurers, Skeletons, Dungeon
 Remastered and Halloween Bits packs by [Kay Lousberg](https://kaylousberg.com), CC0 (see
-`assets/LICENSE-KayKit.txt`). Rendering: [three.js](https://threejs.org) (MIT).
+`assets/LICENSE-KayKit.txt`). Rendering: [three.js](https://threejs.org) (MIT). Networking:
+[PeerJS](https://peerjs.com) (MIT).

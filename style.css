@@ -1135,3 +1135,170 @@ button.small {
     animation: none;
   }
 }
+
+/* ------------------------------------------------------------ multiplayer */
+button.primary.alt {
+  background: linear-gradient(#8fd8ff, #3f8fd8);
+  color: #06182a;
+  margin-top: 10px;
+}
+.mp-panel {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+  text-align: center;
+  background: rgba(14, 16, 26, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 18px 18px 16px;
+}
+.mp-panel h2 {
+  margin: 0 0 6px;
+}
+.mp-choices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 14px 0;
+}
+.mp-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 10px;
+  background: #1c2132;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+}
+.mp-choice b {
+  font-size: 1.1em;
+}
+.mp-choice small {
+  opacity: 0.7;
+}
+.mp-choice:hover {
+  border-color: #8fd8ff;
+}
+.pin-big {
+  font-size: clamp(40px, 11vw, 64px);
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  color: #ffd27f;
+  font-variant-numeric: tabular-nums;
+  margin: 6px 0;
+  user-select: all;
+}
+.mp-status {
+  min-height: 1.3em;
+  color: #9fe8ff;
+  font-size: 0.95em;
+  margin: 8px 0;
+}
+.mp-status.bad {
+  color: #ff8a8a;
+}
+.pin-boxes {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin: 10px 0;
+}
+.pin-boxes i {
+  width: 42px;
+  height: 52px;
+  border-radius: 8px;
+  background: #1c2132;
+  border: 2px solid rgba(255, 255, 255, 0.12);
+  font-style: normal;
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 48px;
+  color: #ffd27f;
+}
+.pin-boxes i.on {
+  border-color: #8fd8ff;
+}
+#pinInput {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 1px;
+  height: 1px;
+}
+.pin-pad {
+  display: grid;
+  grid-template-columns: repeat(3, 64px);
+  gap: 8px;
+  justify-content: center;
+  margin: 6px 0;
+}
+.pin-pad button {
+  height: 46px;
+  font-size: 20px;
+  font-weight: 700;
+  background: #232838;
+  border-radius: 10px;
+  padding: 0;
+}
+.pin-pad button.ok {
+  background: linear-gradient(#ffcf5a, #e59a2b);
+  color: #231400;
+}
+body:not(.touch) .pin-pad {
+  display: none;
+}
+@media (max-height: 460px) {
+  .pin-pad {
+    grid-template-columns: repeat(6, 52px);
+  }
+  .pin-pad button {
+    height: 38px;
+  }
+  .pin-boxes i {
+    height: 42px;
+    line-height: 38px;
+  }
+}
+
+#party {
+  position: absolute;
+  left: calc(12px + var(--safe-l));
+  top: calc(100px + var(--safe-t));
+  width: 190px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  pointer-events: none;
+  font-size: 12px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+}
+#party .pin {
+  color: #9fe8ff;
+  margin-bottom: 2px;
+}
+#party .member span {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#party .mbar {
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+#party .mbar i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #5adf7a, #2fbf5a);
+}
+#party .member.down {
+  color: #ff8a8a;
+}
+#party .member.down .mbar i {
+  background: #7a2a2a;
+}
+#party .member.away {
+  opacity: 0.55;
+}
