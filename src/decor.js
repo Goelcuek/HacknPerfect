@@ -9,6 +9,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { G } from './rig.js';
 import { brickTextures, flagstoneTextures, woodTextures, rugTexture, glowTexture, cobwebTexture, grimeTexture } from './textures.js';
 import { makeRng } from './utils.js';
+import { propGeometry } from './assets.js';
 import { T, WALL_H, BLOCK_H, TILE } from './tiles.js';
 
 const CHUNK = T * 12;
@@ -57,14 +58,27 @@ class Batch {
       const merged = mergeGeometries(list, false);
       for (const g of list) g.dispose();
       if (!merged) continue;
-      const mesh = new THREE.Mesh(merged, mats[key]);
+      const mesh = new THREE.Mesh(merged, mats[key] ?? KIT_MATS[key]);
       mesh.receiveShadow = true;
-      mesh.castShadow = casters.has(key);
+      mesh.castShadow = casters.has(key) || (casters.size > 0 && key.startsWith('kit:'));
       mesh.userData.ownGeo = true;
       mesh.userData.caster = mesh.castShadow;
       parent.add(mesh);
     }
     this.lists.clear();
+  }
+}
+
+// KayKit dungeon pieces (CC0, Kay Lousberg) merged into the same batches as the
+// procedural geometry. Their shared palette materials are keyed 'kit:<uuid>'.
+const KIT_MATS = {};
+function kit(b, F, name, p = [0, 0, 0], rotY = 0, s = 0.7) {
+  const parts = propGeometry(name);
+  if (!parts) return;
+  for (const pt of parts) {
+    const key = 'kit:' + pt.material.uuid;
+    KIT_MATS[key] = pt.material;
+    put(b, F, pt.geometry, key, p, [0, rotY, 0], s);
   }
 }
 
@@ -743,7 +757,82 @@ function propUrns(b, F, r) {
   }
 }
 
+// ------------------------------------------------------- KayKit prop sets
+function flameAt(fires, F, x, y, z, size = 0.12) {
+  const w = new THREE.Vector3(x, y, z).applyMatrix4(F.m);
+  fires.push({ x: w.x, y: w.y, z: w.z, size, tint: 0xff9a3a, glow: 0.9 });
+}
+
+function kitStorage(b, F, r) {
+  const pick = r.int(0, 3);
+  if (pick === 0) {
+    kit(b, F, 'barrel_small_stack', [0, 0, -0.25], (r.next() - 0.5) * 0.4, 0.62);
+    kit(b, F, 'barrel_small', [0.5, 0, 0.5], r.next() * 6, 0.68);
+  } else if (pick === 1) kit(b, F, 'crates_stacked', [0, 0, 0], r.next() * 6, 0.72);
+  else if (pick === 2) kit(b, F, 'keg_decorated', [0, 0, -0.05], 0, 0.5);
+  else {
+    kit(b, F, 'box_small_decorated', [-0.35, 0, -0.25], r.next(), 0.62);
+    kit(b, F, 'barrel_small', [0.5, 0, 0.1], r.next() * 6, 0.7);
+    kit(b, F, 'box_small', [-0.3, 0, 0.55], r.next(), 0.5);
+  }
+}
+
+function kitTable(b, fires, F, r) {
+  kit(b, F, r.next() < 0.5 ? 'table_medium_decorated_A' : 'table_small_decorated_A', [0, 0, 0], r.int(0, 3) * (Math.PI / 2), 0.72);
+  kit(b, F, 'chair', [0, 0, -0.8], 0.1, 0.8);
+  if (r.next() < 0.6) kit(b, F, r.next() < 0.5 ? 'chair' : 'stool', [0.1, 0, 0.8], Math.PI - 0.2, 0.8);
+  candle(b, fires, F, 0.45, 0.72, -0.35, 0.16);
+}
+
+function kitCoffin(b, fires, F, r) {
+  kit(b, F, r.next() < 0.5 ? 'coffin' : 'coffin_decorated', [0, 0, 0], 0, 0.58);
+  for (const s of [-1, 1]) {
+    kit(b, F, 'candle_thin_lit', [s * 0.72, 0, 0.72], 0, 0.8);
+    flameAt(fires, F, s * 0.72, 0.8, 0.72);
+  }
+  if (r.next() < 0.5) kit(b, F, 'skull', [-0.55, 0, -0.75], r.next() * 6, 0.32);
+}
+
+function kitGrave(b, fires, F, r) {
+  kit(b, F, r.next() < 0.5 ? 'grave_A' : 'gravestone', [0, 0, -0.3], 0, 0.7);
+  kit(b, F, 'skull_candle', [0.55, 0, 0.45], r.next() * 6, 0.42);
+  flameAt(fires, F, 0.55, 0.5, 0.45, 0.1);
+  kit(b, F, 'bone_A', [-0.45, 0.06, 0.4], r.next() * 6, 0.6);
+  kit(b, F, 'bone_B', [-0.1, 0.05, 0.62], r.next() * 6, 0.6);
+}
+
+function kitShrine(b, fires, F, r) {
+  kit(b, F, 'shrine_candles', [0, 0, 0], r.int(0, 3) * (Math.PI / 2), 0.85);
+  kit(b, F, 'candle_triple', [0.62, 0, 0.55], r.next() * 6, 0.8);
+  kit(b, F, 'candle_triple', [-0.62, 0, 0.5], r.next() * 6, 0.7);
+}
+
+function kitTreasure(b, F, r) {
+  kit(b, F, 'coin_stack_large', [0.1, 0, 0.1], r.next() * 6, 0.62);
+  kit(b, F, 'trunk_large_A', [-0.45, 0, -0.45], 0.4, 0.62);
+  kit(b, F, 'coin_stack_small', [0.55, 0, -0.5], r.next() * 6, 0.62);
+  kit(b, F, 'coin', [-0.5, 0.05, 0.55], r.next() * 6, 0.8);
+}
+
+function kitBones(b, F, r) {
+  kit(b, F, 'ribcage', [0, 0.3, 0], r.next() * 6, 0.8);
+  kit(b, F, 'skull', [0.5, 0, 0.35], r.next() * 6, 0.45);
+  for (let k = 0; k < 4; k++) kit(b, F, k % 2 ? 'bone_A' : 'bone_B', [(r.next() - 0.5) * 1.3, 0.05, (r.next() - 0.5) * 1.3], r.next() * 6, 0.7);
+}
+
+function kitBed(b, F, r) {
+  kit(b, F, 'bed_decorated', [0.15, 0, 0], r.next() < 0.5 ? 0 : Math.PI, 0.6);
+}
+
 const PROP_BUILDERS = {
+  kitStorage: (b, f, F, r) => kitStorage(b, F, r),
+  kitTable: (b, f, F, r) => kitTable(b, f, F, r),
+  kitCoffin: (b, f, F, r) => kitCoffin(b, f, F, r),
+  kitGrave: (b, f, F, r) => kitGrave(b, f, F, r),
+  kitShrine: (b, f, F, r) => kitShrine(b, f, F, r),
+  kitTreasure: (b, f, F, r) => kitTreasure(b, F, r),
+  kitBones: (b, f, F, r) => kitBones(b, F, r),
+  kitBed: (b, f, F, r) => kitBed(b, F, r),
   barrels: (b, f, F, r) => propBarrels(b, F, r),
   crates: (b, f, F, r) => propCrates(b, F, r),
   shelf: (b, f, F, r) => propShelf(b, f, F, r),
@@ -762,10 +851,10 @@ const PROP_BUILDERS = {
 };
 
 export const PROP_WEIGHTS = {
-  crypt: { sarcophagus: 3, urns: 2, altar: 2, bones: 2, statue: 2, shelf: 1, barrels: 1, crates: 1, table: 1 },
-  moss: { mushrooms: 4, crates: 2, barrels: 2, bones: 1, statue: 1, sacks: 2, table: 1 },
-  ember: { brazier: 3, anvil: 2, rack: 2, barrels: 2, crates: 2, sacks: 1, table: 1 },
-  void: { crystals: 4, altar: 2, statue: 2, shelf: 2, urns: 1, brazier: 1 },
+  crypt: { kitCoffin: 3, kitGrave: 2, kitBones: 2, kitShrine: 2, sarcophagus: 1, urns: 1, statue: 2, shelf: 1, kitStorage: 1, kitTable: 1 },
+  moss: { mushrooms: 3, kitStorage: 3, kitTable: 2, kitBed: 1, kitGrave: 1, kitBones: 1, statue: 1, sacks: 1 },
+  ember: { brazier: 3, anvil: 2, rack: 2, kitStorage: 3, kitTreasure: 1, kitTable: 1, sacks: 1 },
+  void: { crystals: 4, altar: 2, statue: 2, kitShrine: 2, kitTreasure: 2, shelf: 1, urns: 1 },
 };
 
 // ------------------------------------------------------------------- build
@@ -1026,6 +1115,12 @@ export function buildEnvironment(dg, quality = 'high') {
       if (roll < 0.25) put(b, F, G.dodeca(0.12 + rr.next() * 0.12), 'stone', [0, 0.04, 0], [rr.next(), rr.next(), 0], [1, 0.6, 1], wallTint);
       else if (roll < 0.4) put(b, F, G.capsule(0.03, 0.3, 4), 'bone', [0, 0.04, 0], [Math.PI / 2, 0, rr.next()]);
       else if (roll < 0.47) skull(b, F, [0, 0, 0], 0);
+      else if (roll < 0.52) kit(b, F, rr.next() < 0.5 ? 'bottle_A_green' : 'bottle_B_brown', [0, 0, 0], 0, 0.45);
+      else if (roll < 0.55) kit(b, F, 'coin', [0, 0.04, 0], 0, 0.7);
+      else if (roll < 0.58 && (th.id === 'crypt' || th.id === 'void')) {
+        kit(b, F, 'candle_thin_lit', [0, 0, 0], 0, 0.7);
+        flameAt(fires, F, 0, 0.7, 0);
+      }
       else if (roll < 0.62 && (th.id === 'moss' || th.id === 'crypt')) {
         put(b, F, G.cyl(0.5 + rr.next() * 0.5, 0.5, 0.01, 14), 'water', [0, 0.012, 0], null, [1, 1, 0.6 + rr.next() * 0.4], 0x506070);
       } else if (roll < 0.75 && th.id === 'moss') put(b, F, G.sphere(0.5, 8, 5), 'moss', [0, 0, 0], null, [1 + rr.next(), 0.08, 0.8 + rr.next()], 0x5a8a32);

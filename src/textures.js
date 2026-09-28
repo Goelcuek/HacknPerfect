@@ -259,7 +259,8 @@ export function rugTexture(hue) {
   if (cache.has(key)) return cache.get(key);
   const S = 128;
   const c = canvas(S);
-  const g = c.getContext('2d');
+  // read back below: keep this canvas on the CPU (GPU readback stalls for seconds on some devices)
+  const g = c.getContext('2d', { willReadFrequently: true });
   const base = new THREE.Color().setHSL(hue, 0.55, 0.28);
   const dark = new THREE.Color().setHSL(hue, 0.5, 0.16);
   const gold = new THREE.Color().setHSL(0.11, 0.6, 0.5);

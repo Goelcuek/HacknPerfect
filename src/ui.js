@@ -233,13 +233,28 @@ export class UI {
     $('hpText').textContent = `${Math.ceil(Math.max(0, p.hp))} / ${f.maxHp}`;
     $('floorText').textContent = `Floor ${game.floor}`;
     $('goldText').textContent = `💰 ${p.gold}`;
-    $('enemyText').textContent = game.floorCleared ? '✦ Portal open' : `👹 ${game.enemies.length}`;
+    $('enemyText').textContent = game.floorCleared ? '✦ Portal open' : `👹 ${game.enemies.filter((e) => !e.disguised).length}`;
+    // combo counter
+    const combo = game.comboT > 0 ? game.combo : 0;
+    const cEl = $('combo');
+    if (combo !== this.lastCombo) {
+      this.lastCombo = combo;
+      cEl.classList.toggle('show', combo >= 5);
+      if (combo >= 5) {
+        const bonus = Math.round(game.comboBonus() * 100);
+        cEl.innerHTML = `<b>${combo}</b><span>HITS${bonus ? ` · +${bonus}% dmg` : ''}</span>`;
+        cEl.classList.remove('pop');
+        void cEl.offsetWidth;
+        cEl.classList.add('pop');
+      }
+    }
+    if (combo >= 5) cEl.style.setProperty('--left', Math.max(0, game.comboT / 2.5));
     const buffs = Object.entries(p.buffs);
     const bEl = $('buffs');
     const bKey = buffs.map(([id, b]) => id + Math.ceil(b.t)).join();
     if (bKey !== this.lastBuffKey) {
       this.lastBuffKey = bKey;
-      bEl.innerHTML = buffs.map(([id, b]) => `<span class="buff" style="--c:#${b.color.toString(16).padStart(6, '0')}">${id === 'warcry' ? '📯' : id === 'focus' ? '🦅' : '💨'} ${Math.ceil(b.t)}s</span>`).join('');
+      bEl.innerHTML = buffs.map(([id, b]) => `<span class="buff" style="--c:#${b.color.toString(16).padStart(6, '0')}">${{ warcry: '📯', focus: '🦅', berserk: '😡' }[id] || '💨'} ${Math.ceil(b.t)}s</span>`).join('');
     }
 
     const max = p.mods.dashCharges;

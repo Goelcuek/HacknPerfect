@@ -582,6 +582,102 @@ export const SKILLS = {
       });
     },
   },
+
+  // ================================================================ BARBARIAN
+  cleave: {
+    name: 'Cleave',
+    icon: '🪓',
+    cd: (lv) => 5 - 0.3 * (lv - 1),
+    desc: (lv) => `A huge sweeping blow: ${pct(S(2.2, 0.4, lv))} damage in a wide arc.${lv >= 3 ? ' Enemies bleed for 40% more over 3s.' : ''}${lv >= 5 ? ' Always crits wounded foes.' : ''}`,
+    cast(p, lv, ctx) {
+      p.aimAt(ctx, 4.5, 1.2);
+      const g = p.game;
+      p.act({ anim: 'cleave', dur: 0.45, move: 0.2 });
+      g.schedule(0.2, () => {
+        const R = 4 * p.mods.reach;
+        g.effects.slash(p.x, p.y + 1.0, p.z, p.heading, R, 0xff5a3a, 4.2, 0);
+        g.effects.shake(0.3);
+        sfx.slam();
+        g.hitCone(p.x, p.z, p.heading, R, 4.2, (e) => {
+          const hit = p.rollDamage(S(2.2, 0.4, lv), true, lv >= 5 && e.hp < e.maxHp * 0.5);
+          if (lv >= 3) e.status({ bleed: [3, (hit.amount * 0.4) / 8] });
+          return { ...hit, knock: 6 };
+        });
+      });
+    },
+  },
+  axethrow: {
+    name: 'Axe Throw',
+    icon: '🪃',
+    cd: (lv) => 6 - 0.4 * (lv - 1),
+    desc: (lv) => `Hurl a spinning axe that cuts through everything for ${pct(S(1.5, 0.3, lv))} damage, then flies back to you.${lv >= 3 ? ' Cuts again on the way back.' : ''}${lv >= 5 ? ' Throws two.' : ''}`,
+    cast(p, lv, ctx) {
+      p.aimAt(ctx, 14, 0.5, true);
+      const g = p.game;
+      p.act({ anim: 'throw', dur: 0.35, move: 0.5 });
+      g.schedule(0.15, () => {
+        sfx.swing();
+        const n = lv >= 5 ? 2 : 1;
+        for (let k = 0; k < n; k++)
+          g.shoot({ from: p, heading: p.heading + (n > 1 ? (k - 0.5) * 0.3 : 0), speed: 18, life: 1.3, kind: 'axe', radius: 0.8, pierce: 99, boomerang: true, rehit: lv >= 3, dmg: () => p.rollDamage(S(1.5, 0.3, lv), true), knock: 4 });
+      });
+    },
+  },
+  stomp: {
+    name: 'Earthshaker',
+    icon: '🦶',
+    cd: (lv) => 8 - 0.4 * (lv - 1),
+    desc: (lv) => `Stomp the ground: ${pct(S(1.6, 0.3, lv))} damage in ${S(4, 0.4, lv).toFixed(1)}m, tossing enemies up and stunning them for ${sec(S(0.8, 0.2, lv))}.`,
+    cast(p, lv) {
+      const g = p.game;
+      p.act({ anim: 'slamcast', dur: 0.5, move: 0 });
+      g.schedule(0.25, () => quake(p, p.x, p.z, S(4, 0.4, lv), S(1.6, 0.3, lv), S(0.8, 0.2, lv)));
+    },
+  },
+  berserk: {
+    name: 'Berserk',
+    icon: '😡',
+    cd: (lv) => 16 - 0.6 * (lv - 1),
+    desc: (lv) => `Fly into a rage for ${sec(S(6, 0.75, lv))}: +${pct(S(0.35, 0.08, lv))} attack speed, +${pct(S(0.15, 0.05, lv))} damage and ${pct(S(0.04, 0.01, lv))} life steal.`,
+    cast(p, lv) {
+      const g = p.game;
+      p.addBuff('berserk', S(6, 0.75, lv), { as: S(0.35, 0.08, lv), dmg: S(0.15, 0.05, lv), ls: S(0.04, 0.01, lv), size: 0.1 }, 0xff3030);
+      g.effects.ring(p.x, p.z, 4, 0xff3030, 0.5, p.y + 0.1);
+      g.effects.burst(p.x, p.y + 1.2, p.z, 0xff3030, 20, 6, 0.15, 0.6);
+      g.effects.shake(0.3);
+      sfx.slam();
+      p.act({ anim: 'roar', dur: 0.55 });
+    },
+  },
+  hook: {
+    name: 'Chain Hook',
+    icon: '🪝',
+    cd: (lv) => 9 - 0.5 * (lv - 1),
+    desc: (lv) => `Lash out with chains: drag every enemy in a ${S(9, 1, lv)}m cone to you for ${pct(S(0.8, 0.2, lv))} damage, stunning them for ${sec(S(0.6, 0.15, lv))}.`,
+    cast(p, lv, ctx) {
+      p.aimAt(ctx, 10, 0.7);
+      const g = p.game;
+      p.act({ anim: 'throw', dur: 0.4, move: 0 });
+      g.schedule(0.18, () => {
+        sfx.swing();
+        g.hitCone(p.x, p.z, p.heading, S(9, 1, lv), 1.3, (e) => {
+          hookIn(p, e);
+          e.status({ stun: S(0.6, 0.15, lv) });
+          return { ...p.rollDamage(S(0.8, 0.2, lv), true), knock: 0 };
+        });
+      });
+    },
+  },
+  totem: {
+    name: 'War Totem',
+    icon: '🗿',
+    cd: (lv) => 18 - 0.8 * (lv - 1),
+    desc: (lv) => `Plant a war totem for ${sec(S(6, 1, lv))}: inside its ${S(4, 0.3, lv).toFixed(1)}m circle you heal ${pct(S(0.02, 0.005, lv))} of max health per second and enemies take ${pct(S(0.4, 0.1, lv))} damage every second.`,
+    cast(p, lv) {
+      p.act({ anim: 'slamcast', dur: 0.45 });
+      warTotem(p, S(4, 0.3, lv), S(6, 1, lv), S(0.02, 0.005, lv), S(0.4, 0.1, lv), false);
+    },
+  },
 };
 
 // Class skill pools are listed in classes.js; this attaches the id to each def.
@@ -1310,5 +1406,191 @@ evo('assassinate', {
     };
     sfx.dash();
     dashTo(first || nearest(g, p.x, p.z, 10, hit), 0);
+  },
+});
+
+// ---------------------------------------------------------------- barbarian
+// shared helpers for the barbarian's skills
+function quake(p, x, z, R, dmg, stun) {
+  const g = p.game;
+  g.effects.ring(x, z, R, 0xc8a060, 0.45, p.y + 0.1);
+  g.effects.ring(x, z, R * 0.6, 0xffffff, 0.3, p.y + 0.12);
+  g.effects.spikes(x, z, 0x8a7050, R * 0.55);
+  g.effects.burst(x, 0.3, z, 0x8a7a60, 24, 8, 0.2, 0.6);
+  g.effects.shake(0.5);
+  sfx.slam();
+  g.hitEnemiesInRadius(x, z, R, (e) => {
+    e.status({ stun });
+    return { ...p.rollDamage(dmg, true), knock: 5, launch: 4 };
+  });
+}
+
+function hookIn(p, e) {
+  const g = p.game;
+  g.lightning([[p.x, p.y + 1.2, p.z], [e.x, e.y + e.height * 0.5, e.z]], 0xb0b0c0);
+  if (e.def.boss) return;
+  const dx = p.x - e.x;
+  const dz = p.z - e.z;
+  const d = Math.hypot(dx, dz) || 1;
+  const pull = Math.max(0, d - 1.6) * (e.def.heavy ? 10 : 7);
+  e.kx += (dx / d) * pull;
+  e.kz += (dz / d) * pull;
+}
+
+function warTotem(p, R, life, heal, dmg, spirits) {
+  const g = p.game;
+  g.effects.ring(p.x, p.z, R, 0xffb347, 0.5, p.y + 0.1);
+  sfx.slam();
+  g.zone({
+    x: p.x,
+    z: p.z,
+    r: R,
+    life,
+    tick: spirits ? 0.5 : 1,
+    kind: 'totem',
+    n: 0,
+    onTick(zn) {
+      zn.n++;
+      if (zn.n % (spirits ? 2 : 1) === 0) {
+        if (Math.hypot(p.x - zn.x, p.z - zn.z) < R) p.heal(p.final.maxHp * heal);
+        g.effects.ring(zn.x, zn.z, R, 0xffb347, 0.35);
+        g.hitEnemiesInRadius(zn.x, zn.z, R, () => ({ ...p.rollDamage(dmg, true), knock: 0 }));
+      }
+      if (spirits) {
+        const foes = g.enemies.filter((e) => e.alive && !e.disguised && !e.dormant && Math.hypot(e.x - zn.x, e.z - zn.z) < 11);
+        const e = foes[Math.floor(Math.random() * foes.length)];
+        if (e) {
+          g.lightning([[zn.x, 2.6, zn.z], [e.x, e.y + e.height * 0.5, e.z]], 0x9ff0ff);
+          g.damageEnemy(e, { ...p.rollDamage(1.5, true), knock: 2 }, zn.x, zn.z);
+        }
+      }
+    },
+  });
+}
+
+evo('cleave', {
+  name: 'Executioner',
+  icon: '⚔️',
+  cd: () => 5,
+  desc: () => 'A full-circle double cleave for 450% damage. Enemies below 25% health are slain outright; the rest bleed heavily.',
+  cast(p) {
+    const g = p.game;
+    p.act({ anim: 'spin', dur: 0.55, move: 0.3 });
+    [0.1, 0.35].forEach((d, i) =>
+      g.schedule(d, () => {
+        const R = 4.8 * p.mods.reach;
+        g.effects.slash(p.x, p.y + 1.0, p.z, p.heading + i * 3, R, 0xff2a2a, Math.PI * 1.99, 0);
+        g.effects.ring(p.x, p.z, R, 0xff3a3a, 0.35, p.y + 0.1);
+        g.effects.shake(0.45);
+        g.hitStop(0.04);
+        sfx.slam();
+        g.hitEnemiesInRadius(p.x, p.z, R, (e) => {
+          if (!e.def.boss && e.hp < e.maxHp * 0.25) {
+            g.effects.burst(e.x, e.y + 1, e.z, 0xff1a2a, 20, 7, 0.16, 0.5);
+            return { amount: e.hp + 1, crit: true, knock: 8 };
+          }
+          const hit = p.rollDamage(2.25, true);
+          e.status({ bleed: [4, (hit.amount * 0.8) / 11] });
+          return { ...hit, knock: 7 };
+        });
+      }),
+    );
+  },
+});
+
+evo('axethrow', {
+  name: 'Twin Tempest',
+  icon: '🌪️',
+  cd: () => 5,
+  desc: () => 'Hurl three huge spinning axes for 300% damage each. They carve through everything, pull enemies along and cut again on the way back.',
+  cast(p, lv, ctx) {
+    p.aimAt(ctx, 14, 0.6, true);
+    const g = p.game;
+    p.act({ anim: 'throw', dur: 0.35, move: 0.5 });
+    g.schedule(0.15, () => {
+      sfx.swing();
+      for (let k = -1; k <= 1; k++)
+        g.shoot({ from: p, heading: p.heading + k * 0.35, speed: 17, life: 1.5, kind: 'bigaxe', radius: 1.3, pierce: 99, boomerang: true, rehit: true, pull: 3.5, dmg: () => p.rollDamage(3, true), knock: 5 });
+    });
+  },
+});
+
+evo('stomp', {
+  name: 'Tectonic Fury',
+  icon: '🌋',
+  cd: () => 7,
+  desc: () => 'Three rolling quakes (4m, 7m, 10m) of 250% damage each, stunning for 1.5s and leaving the ground burning.',
+  cast(p) {
+    const g = p.game;
+    p.act({ anim: 'slamcast', dur: 0.55, move: 0 });
+    const x = p.x;
+    const z = p.z;
+    [4, 7, 10].forEach((R, i) =>
+      g.schedule(0.25 + i * 0.3, () => {
+        quake(p, x, z, R, 2.5, 1.5);
+        for (let k = 0; k < 6; k++) g.spawnFirePatch(x + Math.cos(k + i) * R * 0.7, z + Math.sin(k + i) * R * 0.7);
+      }),
+    );
+  },
+});
+
+evo('berserk', {
+  name: 'Blood God',
+  icon: '🩸',
+  cd: () => 16,
+  desc: () => 'For 10s: +80% attack speed, +50% damage, 10% life steal, grow huge, and a storm of blood shreds everything within 3m for 60% twice a second.',
+  cast(p) {
+    const g = p.game;
+    p.addBuff('berserk', 10, { as: 0.8, dmg: 0.5, ls: 0.1, size: 0.4 }, 0xff1a2a);
+    g.effects.ring(p.x, p.z, 6, 0xff1a2a, 0.6, p.y + 0.1);
+    g.effects.burst(p.x, p.y + 1.4, p.z, 0xff1a2a, 40, 9, 0.2, 0.8);
+    g.effects.shake(0.6);
+    sfx.boom();
+    p.act({ anim: 'roar', dur: 0.6 });
+    g.zone({
+      x: p.x,
+      z: p.z,
+      r: 3,
+      life: 10,
+      tick: 0.5,
+      follow: p,
+      kind: 'blood',
+      onTick(zn) {
+        g.effects.ring(zn.x, zn.z, 3, 0xff1a2a, 0.3, p.y + 0.1);
+        for (let k = 0; k < 4; k++) g.effects.puff(zn.x + (Math.random() - 0.5) * 5, p.y + 0.5 + Math.random(), zn.z + (Math.random() - 0.5) * 5, 0xb01020, 0.3, 0.5);
+        g.hitEnemiesInRadius(zn.x, zn.z, 3, () => ({ ...p.rollDamage(0.6, true), knock: 1 }));
+      },
+    });
+  },
+});
+
+evo('hook', {
+  name: 'Maelstrom',
+  icon: '🌀',
+  cd: () => 8,
+  desc: () => 'Chains lash out in every direction: drag all enemies within 14m to you, then slam them for 350% damage and a 1.5s stun.',
+  cast(p) {
+    const g = p.game;
+    p.act({ anim: 'spin', dur: 0.5, move: 0 });
+    g.schedule(0.12, () => {
+      sfx.swing();
+      g.hitEnemiesInRadius(p.x, p.z, 14, (e) => {
+        hookIn(p, e);
+        e.status({ stun: 0.6 });
+        return { amount: 1, crit: false, knock: 0, silent: true };
+      });
+    });
+    g.schedule(0.5, () => quake(p, p.x, p.z, 5, 3.5, 1.5));
+  },
+});
+
+evo('totem', {
+  name: 'Ancestral Spirits',
+  icon: '👻',
+  cd: () => 16,
+  desc: () => 'Raise a spirit totem for 10s: heal 5% of max health per second inside it, enemies there take 80% a second, and ancestral lightning strikes a nearby foe twice a second for 150%.',
+  cast(p) {
+    p.act({ anim: 'slamcast', dur: 0.45 });
+    warTotem(p, 5, 10, 0.05, 0.8, true);
   },
 });

@@ -20,7 +20,7 @@ export const CLASSES = {
     name: 'Ranger',
     icon: '🏹',
     role: 'Ranged · Mobile',
-    desc: 'Bow and traps. Strikes from afar and never stands still.',
+    desc: 'Crossbow and traps. Strikes from afar and never stands still.',
     stats: { maxHp: 95, damage: 10, crit: 0.12, critMult: 0.8, moveSpeed: 0.08 },
     mods: {},
     weapon: 'bow',
@@ -43,6 +43,20 @@ export const CLASSES = {
     skills: ['firebolt', 'nova', 'chain', 'meteor', 'blink', 'orb'],
     ratings: { power: 5, defense: 1, speed: 3, range: 4 },
   },
+  barbarian: {
+    id: 'barbarian',
+    name: 'Barbarian',
+    icon: '🪓',
+    role: 'Bruiser · Melee',
+    desc: 'A great axe and a short temper. Huge sweeping blows, chains and war totems.',
+    stats: { maxHp: 125, damage: 13, armor: 4, lifesteal: 0.02, attackSpeed: -0.05 },
+    mods: {},
+    weapon: 'axe',
+    attack: 'axe',
+    palette: { skin: 0xd9a57c, hair: 0x8a4a22, cloth: 0x6a3a22, cloth2: 0x3a2a1a, leather: 0x5a3a22, metal: 0x9aa0aa, trim: 0xc9a86a, eye: 0x2a1a10 },
+    skills: ['cleave', 'axethrow', 'stomp', 'berserk', 'hook', 'totem'],
+    ratings: { power: 5, defense: 4, speed: 2, range: 1 },
+  },
   rogue: {
     id: 'rogue',
     name: 'Rogue',
@@ -59,11 +73,12 @@ export const CLASSES = {
   },
 };
 
-export const CLASS_ORDER = ['knight', 'ranger', 'mage', 'rogue'];
+export const CLASS_ORDER = ['knight', 'barbarian', 'ranger', 'mage', 'rogue'];
 
 export const WEAPON_NAMES = {
   sword: ['Sword', 'Longsword', 'Blade', 'Broadsword', 'Falchion'],
-  bow: ['Bow', 'Longbow', 'Recurve', 'Warbow', 'Shortbow'],
+  bow: ['Crossbow', 'Arbalest', 'Repeater', 'Heavy Crossbow', 'Hand Crossbow'],
+  axe: ['Greataxe', 'Waraxe', 'Cleaver', 'Reaver', 'Bardiche'],
   staff: ['Staff', 'Rod', 'Scepter', 'Stave', 'Wand'],
   daggers: ['Daggers', 'Kris Pair', 'Shivs', 'Twin Blades', 'Stilettos'],
 };
@@ -73,4 +88,5 @@ export const ARMOR_NAMES = {
   ranger: ['Leathers', 'Hunter Garb', 'Brigandine', 'Scout Mail'],
   mage: ['Robes', 'Vestments', 'Mantle', 'Regalia'],
   rogue: ['Garb', 'Shadowweave', 'Jerkin', 'Nightcloak'],
+  barbarian: ['Furs', 'Hide Armor', 'Warharness', 'Bonemail'],
 };

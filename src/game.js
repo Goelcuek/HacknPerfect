@@ -12,6 +12,7 @@ import { SKILLS, MAX_SKILL_LEVEL, skillDef } from './skills.js';
 import { CLASSES } from './classes.js';
 import { buildDropModel } from './gear.js';
 import { G, mat } from './rig.js';
+import { propModel, hingeLid, gearModel } from './assets.js';
 import { sfx } from './audio.js';
 import { clamp, angleDiff, rng } from './utils.js';
 
@@ -85,6 +86,7 @@ export class Game {
     this.pickups = [];
     this.chests = [];
     this.pots = [];
+    this.traps = [];
     this.patches = [];
     this.zones = [];
     this.corpses = [];
@@ -139,7 +141,7 @@ export class Game {
 
   giveStarterWeapon(p) {
     const c = CLASSES[p.clsId];
-    const names = { sword: 'Rusty Sword', bow: 'Frayed Shortbow', staff: 'Gnarled Staff', daggers: 'Chipped Daggers' };
+    const names = { sword: 'Rusty Sword', bow: 'Rickety Crossbow', staff: 'Gnarled Staff', daggers: 'Chipped Daggers', axe: 'Notched Greataxe' };
     p.equip({ slot: 'weapon', wtype: c.weapon, rarity: RARITIES[0], name: names[c.weapon], stats: { damage: 2 }, level: 1, visual: { variant: 0, hue: 0.5 }, starter: true });
     p.hp = p.final.maxHp;
   }
@@ -152,15 +154,15 @@ export class Game {
       p.heading = this.showcaseHeading + 0.35 + Math.sin(t * 0.5) * 0.3;
       p.showcase(dt);
       const h = this.showcaseHeading;
-      const cx = p.x + Math.sin(h) * 3.3;
-      const cz = p.z + Math.cos(h) * 3.3;
+      const cx = p.x + Math.sin(h) * 4.6;
+      const cz = p.z + Math.cos(h) * 4.6;
       const camYaw = h + Math.PI;
-      const shift = this.camera.aspect > 1.2 ? 0.95 : 0;
+      const shift = this.camera.aspect > 1.2 ? 1.25 : 0;
       const rx = -Math.cos(camYaw);
       const rz = Math.sin(camYaw);
-      this.cam.pos.lerp(new THREE.Vector3(cx, 1.55, cz), Math.min(1, dt * 4));
+      this.cam.pos.lerp(new THREE.Vector3(cx, 1.6, cz), Math.min(1, dt * 4));
       this.camera.position.copy(this.cam.pos);
-      this.camera.lookAt(p.x - rx * shift, 1.05, p.z - rz * shift);
+      this.camera.lookAt(p.x - rx * shift, 1.1, p.z - rz * shift);
       this.cam.yaw = camYaw;
     } else {
       p.showcase(dt);
@@ -177,6 +179,9 @@ export class Game {
   // ------------------------------------------------------------------ run
   startRun(clsId) {
     this.inRun = true;
+    this.combo = 0;
+    this.comboT = 0;
+    this.bestCombo = 0;
     this.setPlayer(new Player(this, clsId));
     this.giveStarterWeapon(this.player);
     this.floor = 0;
@@ -194,7 +199,7 @@ export class Game {
     }
     // never let a previous level's meshes linger in the scene
     for (const c of this.scene.children.slice()) if (c.userData.isLevel) this.scene.remove(c);
-    for (const list of [this.enemies, this.projectiles, this.pickups, this.chests, this.pots, this.patches, this.zones, this.corpses]) {
+    for (const list of [this.enemies, this.projectiles, this.pickups, this.chests, this.pots, this.patches, this.zones, this.corpses, this.traps]) {
       for (const o of list) {
         if (o.mesh) this.scene.remove(o.mesh);
         if (o.dispose) o.dispose();
@@ -224,6 +229,7 @@ export class Game {
     this.pickups = [];
     this.chests = [];
     this.pots = [];
+    this.traps = [];
     this.patches = [];
     this.zones = [];
     this.corpses = [];
@@ -242,9 +248,10 @@ export class Game {
     this.cam.pitch = 0.38;
     this.cam.pos.set(p.x - Math.sin(p.heading) * 6, 4, p.z - Math.cos(p.heading) * 6);
 
-    for (const sp of dg.spawns) this.spawnEnemy(sp.type, sp.x, sp.z, false, sp.elite);
+    for (const sp of dg.spawns) this.spawnEnemy(sp.type, sp.x, sp.z, false, sp.elite, { dormant: sp.dormant });
     for (const c of dg.chests) this.spawnChest(c.x, c.z);
     for (const pt of dg.pots) this.spawnPot(pt.x, pt.z);
+    for (const tr of dg.traps || []) this.spawnTrap(tr);
     this.spawnPortal(ex.x, ex.z);
     this.flowTimer = 0;
     this.revealTimer = 0;
@@ -253,9 +260,9 @@ export class Game {
   }
 
   // --------------------------------------------------------------- spawning
-  spawnEnemy(type, x, z, aggro = false, elite = false) {
-    const e = new Enemy(this, type, x, z, this.floor, elite);
-    e.aggro = aggro;
+  spawnEnemy(type, x, z, aggro = false, elite = false, opts = {}) {
+    const e = new Enemy(this, type, x, z, this.floor, elite, opts);
+    e.aggro = e.aggro || aggro;
     this.enemies.push(e);
     this.applyShadows(e.mesh);
     this.scene.add(e.mesh);
@@ -265,6 +272,39 @@ export class Game {
       e.aggro = false;
     }
     return e;
+  }
+
+  // Necromancy (Skeleton Mage, Bone King): stand fallen skeletons back up, and claw
+  // fresh minions out of the floor for the rest.
+  raiseDead(src, n) {
+    const fx = this.effects;
+    fx.ring(src.x, src.z, 3, 0x9a66ff, 0.5);
+    fx.burst(src.x, 1.5, src.z, 0x9a66ff, 20, 5, 0.18, 0.6);
+    sfx.portal();
+    let raised = 0;
+    const bodies = this.corpses
+      .filter((c) => c.model && !c.def.boss && !c.affixes.includes('explosive') && c.deathT > 1 && c.deathT < 6.5 && Math.hypot(c.x - src.x, c.z - src.z) < 14)
+      .sort((a, b) => Math.hypot(a.x - src.x, a.z - src.z) - Math.hypot(b.x - src.x, b.z - src.z));
+    for (const c of bodies) {
+      if (raised >= n) break;
+      this.corpses.splice(this.corpses.indexOf(c), 1);
+      c.resurrect();
+      this.enemies.push(c);
+      fx.ring(c.x, c.z, 1.4, 0x9a66ff, 0.5);
+      raised++;
+    }
+    for (; raised < n; raised++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = 2 + Math.random() * 2.5;
+      let x = src.x + Math.sin(a) * r;
+      let z = src.z + Math.cos(a) * r;
+      if (this.dungeon.blocked(x, z, 0.5, 1.5)) {
+        x = src.x;
+        z = src.z;
+      }
+      const e = this.spawnEnemy(src.def.boss && Math.random() < 0.4 ? 'archer' : 'grunt', x, z, true, false, { rise: true });
+      e.summoned = true;
+    }
   }
 
   chestMats() {
@@ -281,58 +321,102 @@ export class Game {
   }
 
   spawnChest(x, z, rich = false) {
-    const M = this.chestMats();
-    const wood = rich ? M.rich : M.wood;
-    const g = new THREE.Group();
-    const add = (geo, m, px, py, pz, parent = g) => {
-      const mesh = new THREE.Mesh(geo, m);
-      mesh.position.set(px, py, pz);
-      parent.add(mesh);
-      return mesh;
-    };
-    add(G.box(1.1, 0.6, 0.75), wood, 0, 0.3, 0);
-    for (const sx of [-0.52, 0.52]) for (const sz of [-0.35, 0.35]) add(G.box(0.08, 0.62, 0.08), M.iron, sx, 0.31, sz);
-    for (let i = -2; i <= 2; i++) add(G.box(0.012, 0.56, 0.01), M.clayDark, i * 0.2, 0.3, 0.378);
-    const lid = new THREE.Group();
-    lid.position.set(0, 0.6, -0.37);
-    g.add(lid);
-    const lidTop = add(G.cyl(0.375, 0.375, 1.1, 12, false), wood, 0, 0.02, 0.37, lid);
-    lidTop.rotation.z = Math.PI / 2;
-    lidTop.scale.set(0.5, 1, 1);
-    for (const sx of [-0.4, 0, 0.4]) {
-      const band = add(G.cyl(0.385, 0.385, 0.07, 12, true), rich ? M.gold : M.iron, sx, 0.02, 0.37, lid);
-      band.rotation.z = Math.PI / 2;
-      band.scale.set(0.5, 1, 1);
+    // from floor 2 some chests have teeth
+    if (!rich && this.floor >= 2 && rng.next() < 0.15 + Math.min(0.1, this.floor * 0.01)) {
+      this.spawnEnemy('mimic', x, z, false, false, { mimic: true });
+      return;
     }
-    add(G.box(0.18, 0.2, 0.06), M.gold, 0, -0.02, 0.77, lid);
-    add(G.sphere(0.03, 6, 4), M.iron, 0, -0.05, 0.8, lid);
+    const name = rich ? 'chest_gold' : 'chest';
+    const g = propModel(name);
+    g.scale.setScalar(0.62);
+    const lid = hingeLid(g, name + '_lid', 0.6, -0.64);
+    g.traverse((o) => {
+      if (o.isMesh) o.castShadow = true;
+    });
     g.position.set(x, 0, z);
     g.rotation.y = rng.next() * Math.PI * 2;
     this.scene.add(g);
     this.chests.push({ x, z, mesh: g, lid, open: false, rich, t: 0 });
   }
 
+  // Breakables: barrels and crates that burst into gold, potions or splinters.
   spawnPot(x, z) {
-    const M = this.chestMats();
-    if (!this.potGeo) {
-      const pts = [];
-      const prof = [[0.0, 0], [0.18, 0.02], [0.28, 0.18], [0.3, 0.32], [0.24, 0.48], [0.13, 0.58], [0.12, 0.66], [0.17, 0.7]];
-      for (const [r, y] of prof) pts.push(new THREE.Vector2(r, y));
-      this.potGeo = new THREE.LatheGeometry(pts, 12);
-    }
-    const g = new THREE.Group();
-    const body = new THREE.Mesh(this.potGeo, rng.next() < 0.5 ? M.clay : M.clayDark);
-    g.add(body);
-    const band = new THREE.Mesh(G.torus(0.29, 0.02, Math.PI * 2, 4, 14), M.clayDark);
-    band.rotation.x = Math.PI / 2;
-    band.position.y = 0.3;
-    g.add(band);
-    const s = 0.85 + rng.next() * 0.35;
-    g.scale.setScalar(s);
+    const kinds = [
+      ['barrel_small', 0.66],
+      ['box_small', 0.62],
+      ['box_small_decorated', 0.46],
+      ['barrel_small', 0.58],
+    ];
+    const [name, s] = kinds[Math.floor(rng.next() * kinds.length)];
+    const g = propModel(name);
+    g.scale.setScalar(s * (0.9 + rng.next() * 0.2));
+    g.traverse((o) => {
+      if (o.isMesh) o.castShadow = true;
+    });
     g.position.set(x, 0, z);
     g.rotation.y = rng.next() * 6;
     this.scene.add(g);
     this.pots.push({ x, z, mesh: g });
+  }
+
+  // Spike trap: a whole floor tile of spikes on a cycle (warning rattle, then up).
+  spawnTrap(tr) {
+    const g = propModel('floor_tile_big_spikes');
+    g.scale.set(0.5, 0.5, 0.5);
+    g.position.set(tr.x, 0.012, tr.z);
+    const spikes = g.getObjectByName('spikes');
+    if (!this.trapTileMat) {
+      const src = g.getObjectByName('Cube14376') || g.children[0];
+      this.trapTileMat = src?.material?.clone();
+      if (this.trapTileMat) this.trapTileMat.color.setHex(0x6e6e76);
+    }
+    g.traverse((o) => {
+      if (o.isMesh) {
+        o.receiveShadow = true;
+        if (o !== spikes && this.trapTileMat) o.material = this.trapTileMat;
+      }
+    });
+    this.scene.add(g);
+    this.traps.push({ ...tr, mesh: g, spikes, baseY: spikes ? spikes.position.y : 0, t: tr.phase, hit: new Set(), up: false });
+  }
+
+  updateTraps(dt) {
+    const P = 3.2; // cycle: down 1.9s, rattle 0.45s, up 0.6s, sink
+    const p = this.player;
+    for (const tr of this.traps) {
+      tr.t = (tr.t + dt) % P;
+      const t = tr.t;
+      let h = 0; // 0 hidden .. 1 fully up
+      if (t > 1.9 && t < 2.35) h = 0.12 + Math.sin(t * 60) * 0.03;
+      else if (t >= 2.35 && t < 2.95) h = Math.min(1, (t - 2.35) / 0.06);
+      else if (t >= 2.95) h = Math.max(0, 1 - (t - 2.95) / 0.25);
+      if (tr.spikes) tr.spikes.position.y = tr.baseY - (1 - h) * 2.05;
+      const armed = t >= 2.35 && t < 2.95;
+      if (armed && !tr.up) {
+        tr.hit.clear();
+        if (Math.hypot(p.x - tr.x, p.z - tr.z) < 14) sfx.swing();
+      }
+      tr.up = armed;
+      if (!armed) continue;
+      const inside = (o) => Math.abs(o.x - tr.x) < 1.0 + (o.radius || 0) * 0.5 && Math.abs(o.z - tr.z) < 1.0 + (o.radius || 0) * 0.5;
+      if (!tr.hit.has(p) && inside(p) && p.y < 0.6 && !p.dead) {
+        tr.hit.add(p);
+        if (p.takeDamage(10 + this.floor * 3, null, false)) {
+          p.vy = Math.max(p.vy, 6);
+          p.grounded = false;
+          this.effects.burst(p.x, 0.3, p.z, 0xcccccc, 10, 4, 0.1, 0.35);
+          if (!this.tipsShown.traps) {
+            this.tipsShown.traps = true;
+            this.ui.toast('Spike traps rattle before they fire. Lure enemies onto them!', 3);
+          }
+        }
+      }
+      for (const e of this.enemies) {
+        if (!e.alive || e.def.hover || e.def.boss || tr.hit.has(e) || !inside(e)) continue;
+        tr.hit.add(e);
+        this.damageEnemy(e, { amount: 20 + this.floor * 8, crit: false, knock: 0, launch: 5 }, tr.x, tr.z);
+      }
+    }
   }
 
   spawnPortal(x, z) {
@@ -489,6 +573,17 @@ export class Game {
     } else if (kind === 'knife') {
       add(G.box(0.06, 0.015, 0.3), M.steel);
       add(G.box(0.03, 0.03, 0.1), M.wood, -0.17);
+    } else if (kind === 'axe' || kind === 'bigaxe') {
+      // a real axe model tumbling end over end
+      const ax = gearModel('axe_1handed');
+      if (ax) {
+        const holder = new THREE.Group();
+        ax.position.y = -0.35;
+        holder.add(ax);
+        holder.scale.setScalar(kind === 'bigaxe' ? 1.4 : 0.9);
+        g.add(holder);
+        g.userData.dispose = () => ax.traverse((o) => o.isMesh && o.material.dispose());
+      }
     } else if (kind === 'orb') {
       add(G.sphere(0.8, 16, 12), M.orb);
       add(G.ico(0.3, 1), M.orbCore);
@@ -522,6 +617,9 @@ export class Game {
       pull: o.pull || 0,
       tickT: 0,
       spin: 0,
+      boomerang: o.boomerang,
+      rehit: o.rehit,
+      maxLife: o.life,
     };
     pr.mesh = this.projectileMesh(o.kind, o.kind === 'orb' ? pr.radius / 1.5 : 1);
     pr.mesh.position.set(pr.x, pr.y, pr.z);
@@ -596,6 +694,19 @@ export class Game {
       g.add(ring);
     } else if (z.kind === 'poison') {
       z.mat = addDisc(0x5adf3a, 0.28);
+    } else if (z.kind === 'totem') {
+      addDisc(0xffb347, 0.12);
+      const ring = new THREE.Mesh(G.torus(z.r, 0.05, Math.PI * 2, 4, 40), new THREE.MeshBasicMaterial({ color: 0xffb347 }));
+      mats.push(ring.material);
+      ring.rotation.x = Math.PI / 2;
+      g.add(ring);
+      const post = propModel('post_skull');
+      if (post) {
+        post.scale.setScalar(0.62);
+        g.add(post);
+      }
+    } else if (z.kind === 'blood') {
+      z.mat = addDisc(0xb01020, 0.18);
     } else if (z.kind === 'trap') {
       const M = this.chestMats();
       const base = new THREE.Mesh(G.cyl(0.4, 0.45, 0.08, 12), M.iron);
@@ -699,6 +810,7 @@ export class Game {
     const ground = this.dungeon.maxHeightUnder(p.x, p.z, p.radius);
     if (d < r + p.radius && p.y - ground < 0.5) {
       if (p.takeDamage(dmg, src, true)) {
+        src?.onHitPlayer?.(dmg);
         p.vy = 7;
         p.grounded = false;
         if (!this.tipsShown.jump) {
@@ -714,7 +826,7 @@ export class Game {
     let best = null;
     let bestScore = Infinity;
     for (const e of this.enemies) {
-      if (!e.alive) continue;
+      if (!e.alive || e.disguised || e.dormant) continue;
       const dx = e.x - x;
       const dz = e.z - z;
       const d = Math.hypot(dx, dz);
@@ -761,8 +873,9 @@ export class Game {
     const p = this.player;
     let amount = hit.amount;
     if (p.mods.execute > 0 && e.hp < e.maxHp * 0.3) amount *= 1 + p.mods.execute;
-    amount = Math.max(1, Math.round(amount));
+    amount = Math.max(1, Math.round(e.absorb(amount)));
     e.hp -= amount;
+    if (!hit.silent) this.addCombo();
     e.flash = 0.09;
     e.aggro = true;
     if (!hit.silent) e.flinch = 0.2;
@@ -782,7 +895,7 @@ export class Game {
     }
     if (hit.launch && !heavy) e.vy = hit.launch;
     if (!hit.silent) {
-      this.effects.burst(e.x, e.y + e.height * 0.5, e.z, hit.crit ? 0xffe066 : e.type === 'archer' ? 0xe8e0c8 : e.type === 'wisp' ? 0xc0a0ff : 0xff5040, hit.crit ? 12 : 6, 5, 0.12, 0.35);
+      this.effects.burst(e.x, e.y + e.height * 0.5, e.z, hit.crit ? 0xffe066 : e.def.color, hit.crit ? 12 : 6, 5, 0.12, 0.35);
       if (hit.crit) sfx.crit();
       else sfx.hit();
       if (hit.crit) this.hitStop(0.035);
@@ -790,6 +903,22 @@ export class Game {
     }
     this.effects.damageNumber(e.x, e.y + e.height + 0.3, e.z, String(amount), hit.crit ? 'crit' : hit.dot === 'poison' ? 'poison' : hit.silent ? 'dot' : '');
     if (e.hp <= 0) this.killEnemy(e, fromX, fromZ);
+  }
+
+  // Combo: hits within 2.5s of each other chain up; every 10 adds 2.5% damage (max 25%).
+  addCombo() {
+    this.combo = (this.comboT > 0 ? this.combo : 0) + 1;
+    this.comboT = 2.5;
+    this.bestCombo = Math.max(this.bestCombo || 0, this.combo);
+    const shout = { 25: 'Rampage!', 50: 'Unstoppable!', 100: 'Godlike!', 200: 'Legendary!' }[this.combo];
+    if (shout) {
+      this.ui.toast(`${this.combo} hit combo — ${shout}`, 1.6, '#ff9a3a');
+      sfx.crit();
+    }
+  }
+
+  comboBonus() {
+    return this.comboT > 0 ? Math.min(0.25, Math.floor(this.combo / 10) * 0.025) : 0;
   }
 
   killEnemy(e, fromX = e.x, fromZ = e.z) {
@@ -801,8 +930,8 @@ export class Game {
     this.effects.burst(e.x, e.y + e.height * 0.5, e.z, e.def.color, 14, 5, 0.18, 0.6);
     sfx.enemyDie();
     const [g0, g1] = e.def.gold;
-    const gold = (g0 + rng.next() * (g1 - g0)) * (1 + this.floor * 0.15) * (e.elite ? 3 : 1) * p.final.goldMult;
-    this.dropGold(e.x, e.z, Math.round(gold));
+    const gold = (g0 + rng.next() * (g1 - g0)) * (1 + this.floor * 0.15) * (e.elite ? 3 : 1) * p.final.goldMult * (e.summoned ? 0.2 : 1);
+    if (gold >= 1) this.dropGold(e.x, e.z, Math.round(gold));
     const cls = p.clsId;
     if (e.def.boss) {
       for (let i = 0; i < 3; i++) this.dropItem(e.x, e.z, generateItem(this.floor, cls, 6, 2));
@@ -817,13 +946,16 @@ export class Game {
         this.corpses.push(m);
       }
       this.enemies = [e];
-    } else {
+    } else if (e.type === 'mimic') {
+      for (let i = 0; i < 2; i++) this.dropItem(e.x, e.z, generateItem(this.floor, cls, 5, 2));
+      this.dropPotion(e.x, e.z);
+    } else if (!e.summoned) {
       const itemChance = e.elite ? 0.7 : e.def.heavy ? 0.22 : 0.09;
       if (rng.next() < itemChance) this.dropItem(e.x, e.z, generateItem(this.floor, cls, e.elite ? 3 : 0, e.elite ? 1 : 0));
       if (rng.next() < 0.07) this.dropPotion(e.x, e.z);
     }
     this.enemies = this.enemies.filter((x) => x !== e);
-    if (!this.floorCleared && this.enemies.length === 0) {
+    if (!this.floorCleared && !this.enemies.some((x) => x.alive && !x.disguised && !x.dormant)) {
       this.floorCleared = true;
       this.activatePortal();
     }
@@ -837,7 +969,9 @@ export class Game {
     const pt = this.pots[i];
     this.pots.splice(i, 1);
     this.scene.remove(pt.mesh);
-    this.effects.burst(pt.x, 0.4, pt.z, 0x9a6b45, 12, 4, 0.15, 0.5);
+    this.effects.burst(pt.x, 0.4, pt.z, 0x9a6b45, 18, 6, 0.16, 0.55);
+    this.effects.burst(pt.x, 0.3, pt.z, 0x6a4a2a, 10, 3, 0.22, 0.6);
+    this.effects.smoke(pt.x, pt.z);
     sfx.hit();
     const r = rng.next();
     if (r < 0.55) this.dropGold(pt.x, pt.z, Math.round((3 + this.floor * 2) * this.player.final.goldMult));
@@ -901,6 +1035,8 @@ export class Game {
     this.updateZones(dt);
     this.updatePickups(dt);
     this.updateInteractables(dt);
+    this.updateTraps(dt);
+    if (this.comboT > 0) this.comboT -= dt;
     this.updatePatches(dt);
     this.effects.update(dt);
     this.updateTorches();
@@ -1053,6 +1189,35 @@ export class Game {
           pr.mesh.rotation.x += dt * 3;
           if (Math.random() < 0.6) fx.puff(pr.x + (Math.random() - 0.5) * pr.radius, pr.y + (Math.random() - 0.5), pr.z + (Math.random() - 0.5) * pr.radius, 0xc0a0ff, 0.2, 0.4);
         } else if (pr.kind === 'knife') pr.mesh.children.forEach((c) => (c.rotation.y += dt * 25));
+        else if (pr.kind === 'axe' || pr.kind === 'bigaxe') {
+          if (pr.mesh.children[0]) pr.mesh.children[0].rotation.x += dt * 22;
+          if (Math.random() < 0.5) fx.puff(pr.x, pr.y, pr.z, 0xdfe8ff, 0.2, 0.2);
+        }
+        // returning axes: turn around halfway and home back to the thrower's hand
+        if (pr.boomerang) {
+          if (!pr.returning && pr.life < pr.maxLife * 0.5) {
+            pr.returning = true;
+            if (pr.rehit) pr.hitSet.clear();
+          }
+          if (pr.returning) {
+            const want = Math.atan2(p.x - pr.x, p.z - pr.z);
+            pr.heading += clamp(angleDiff(pr.heading, want), -9 * dt, 9 * dt);
+            pr.life = Math.max(pr.life, 0.05);
+            if (Math.hypot(p.x - pr.x, p.z - pr.z) < 1.2) pr.life = -1;
+          }
+          if (pr.pull) {
+            for (const e of this.enemies) {
+              if (!e.alive || e.def.boss) continue;
+              const dx = pr.x - e.x;
+              const dz = pr.z - e.z;
+              const d = Math.hypot(dx, dz);
+              if (d < pr.pull && d > 0.3) {
+                e.kx += (dx / d) * 20 * dt;
+                e.kz += (dz / d) * 20 * dt;
+              }
+            }
+          }
+        }
 
         if (pr.tickDmg) {
           if (pr.pull) {
@@ -1113,6 +1278,7 @@ export class Game {
       }
       if (dead) {
         this.scene.remove(pr.mesh);
+        pr.mesh.userData.dispose?.();
         this.projectiles.splice(i, 1);
       }
     }
@@ -1185,7 +1351,7 @@ export class Game {
     for (const c of this.chests) {
       if (c.open) {
         c.t = Math.min(1, c.t + dt * 4);
-        c.lid.rotation.x = -c.t * 1.9;
+        if (c.lid) c.lid.rotation.x = -c.t * 1.75;
         continue;
       }
       if (Math.hypot(p.x - c.x, p.z - c.z) < 1.6 && p.y < 1.5) this.openChest(c);

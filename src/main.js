@@ -10,6 +10,7 @@ import { Input } from './input.js';
 import { UI } from './ui.js';
 import { Game, loadBest } from './game.js';
 import { initAudio } from './audio.js';
+import { loadAssets } from './assets.js';
 
 const canvas = document.getElementById('game');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -132,8 +133,20 @@ ui.bindMenus({
   quality: cycleQuality,
 });
 game.quality = null;
-applyQuality(loadQuality());
-toTitle();
+const loadEl = document.getElementById('loading');
+loadAssets((f) => {
+  if (loadEl) loadEl.style.setProperty('--p', f);
+})
+  .then(() => {
+    applyQuality(loadQuality());
+    toTitle();
+    loadEl?.classList.add('done');
+    setTimeout(() => loadEl?.remove(), 600);
+  })
+  .catch((err) => {
+    console.error(err);
+    if (loadEl) loadEl.querySelector('.ltext').textContent = 'Could not load the game assets. Check your connection and reload.';
+  });
 
 window.addEventListener('resize', () => {
   const w = window.innerWidth;
@@ -164,6 +177,19 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
+  if (window.__manual) return;
+  step(dt);
+  if (game.player) game.render();
+}
+
+// Test hook: set window.__manual = true to stop the clock, then __advance(seconds)
+// steps the simulation at a fixed 60 Hz (used by the headless screenshot tests).
+window.__advance = (sec) => {
+  for (let t = 0; t < sec - 1e-6; t += 1 / 60) step(1 / 60);
+  if (game.player) game.render();
+};
+
+function step(dt) {
   if (game.state === 'title' || game.state === 'classSelect') {
     game.updateBackdrop(dt, game.state);
   } else {
@@ -178,6 +204,5 @@ function frame(now) {
     input.endFrame();
     game.resume();
   }
-  if (game.player) game.render();
 }
 requestAnimationFrame(frame);

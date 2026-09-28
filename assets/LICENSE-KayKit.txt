@@ -1,0 +1,10 @@
+The 3D models and animations in assets/models/ are from the KayKit asset packs
+by Kay Lousberg (www.kaylousberg.com), released under Creative Commons Zero (CC0):
+http://creativecommons.org/publicdomain/zero/1.0/
+
+  - KayKit : Adventurers Character Pack 1.0
+  - KayKit : Skeletons Character Pack 1.0
+  - KayKit : Dungeon Remastered 1.0
+  - KayKit : Halloween Bits 1.0
+
+They were converted and compressed with tools/build-assets.mjs. Thank you, Kay!

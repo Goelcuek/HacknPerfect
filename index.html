@@ -14,10 +14,16 @@
   </head>
   <body>
     <canvas id="game"></canvas>
+    <div id="loading">
+      <div class="ltitle">HACK<span>n</span>PERFECT</div>
+      <div class="lbar"><i></i></div>
+      <div class="ltext">Summoning heroes…</div>
+    </div>
     <div id="numbers"></div>
     <div id="damageFlash"></div>
 
     <div id="hud" class="hidden">
+      <div id="combo"></div>
       <div id="stats">
         <div class="bar hp"><div id="hpFill"></div><div id="shieldFill"></div><span id="hpText">100 / 100</span></div>
         <div class="subrow"><div id="dashPips"></div><div id="buffs"></div></div>
@@ -31,7 +37,7 @@
       <button id="pauseBtn" class="ui-block" data-btn="pause" aria-label="Pause">❚❚</button>
 
       <div id="bossbar" class="hidden">
-        <div id="bossName">Dungeon Warden</div>
+        <div id="bossName">The Bone King</div>
         <div class="bar"><div id="bossFill"></div></div>
       </div>
 

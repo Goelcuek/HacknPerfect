@@ -104,6 +104,7 @@ public class MainActivity extends Activity {
         if (p.endsWith(".jpg") || p.endsWith(".jpeg")) return "image/jpeg";
         if (p.endsWith(".svg")) return "image/svg+xml";
         if (p.endsWith(".wasm")) return "application/wasm";
+        if (p.endsWith(".glb")) return "model/gltf-binary";
         return "application/octet-stream";
     }
 

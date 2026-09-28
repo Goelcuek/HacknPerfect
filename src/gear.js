@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { G, mat, part } from './rig.js';
 import { applySurface, metalSurface, leatherSurface } from './textures.js';
+import { gearModel } from './assets.js';
 
 export function gearMats(tier, hex) {
   const metal = new THREE.Color(0xb4bac4).lerp(new THREE.Color(hex), [0.02, 0.22, 0.35, 0.45, 0.55][tier]);
@@ -188,12 +189,30 @@ export function buildDropModel(item) {
   const hex = item.rarity.hex;
   const g = new THREE.Group();
   if (item.slot === 'weapon') {
+    // the same KayKit weapon the hero will hold, glowing with its rarity
+    const name = { sword: tier >= 2 ? 'sword_2handed_color' : 'sword_1handed', axe: 'axe_2handed', staff: 'staff', daggers: 'dagger', bow: 'crossbow_2handed' }[item.wtype];
+    const m = name && gearModel(name);
+    if (m) {
+      const scale = { sword: 0.75, axe: 0.75, staff: 0.6, daggers: 0.9, bow: 0.8 }[item.wtype];
+      m.scale.setScalar(scale);
+      m.position.y = item.wtype === 'bow' ? 0 : -0.45 * scale;
+      const mats = [];
+      m.traverse((o) => {
+        if (!o.isMesh) return;
+        mats.push(o.material);
+        if (tier >= 1) {
+          o.material.emissive.setHex(hex);
+          o.material.emissiveIntensity = [0, 0.12, 0.25, 0.45, 0.7][tier];
+        }
+      });
+      g.add(m);
+      g.rotation.z = item.wtype === 'bow' ? 0 : 0.35;
+      g.userData.dispose = () => mats.forEach((mt) => mt.dispose());
+      return g;
+    }
     const w = buildWeapon(item);
-    const m = w.main || w.off;
-    if (item.wtype === 'bow') m.userData.setDraw(0, false);
-    if (item.wtype === 'staff') m.scale.setScalar(0.7);
-    g.add(m);
-    g.rotation.z = item.wtype === 'bow' ? 0 : 0.35;
+    const wm = w.main || w.off;
+    g.add(wm);
     g.userData.dispose = w.dispose;
     return g;
   }
@@ -214,19 +233,4 @@ export function buildDropModel(item) {
     for (const k in M) M[k].dispose();
   };
   return g;
-}
-
-// Pull the bowstring to wherever the drawing hand actually is this frame.
-const _nv = new THREE.Vector3();
-export function followNock(bow, hand, drawing, showArrow) {
-  if (!drawing) {
-    bow.userData.setDraw(0, false);
-    return;
-  }
-  hand.updateWorldMatrix(true, false);
-  hand.localToWorld(_nv.set(0, -0.07, 0.02));
-  bow.updateWorldMatrix(true, false);
-  bow.worldToLocal(_nv);
-  const rest = bow.userData.restZ;
-  bow.userData.setNockZ(Math.max(rest - 0.62, Math.min(rest, _nv.z)), showArrow);
 }

@@ -17,6 +17,7 @@ export function enemyPoolForFloor(floor) {
   const pool = [{ type: 'grunt', w: 10 }];
   if (floor >= 2) pool.push({ type: 'archer', w: 5 + floor * 0.5 });
   if (floor >= 3) pool.push({ type: 'brute', w: 2 + floor * 0.4 });
+  if (floor >= 3) pool.push({ type: 'mage', w: 1.5 + floor * 0.3 });
   if (floor >= 4) pool.push({ type: 'wisp', w: 3 + floor * 0.3 });
   return pool;
 }
@@ -293,7 +294,9 @@ export class Dungeon {
           }
         }
         const pos = this.randomFloorIn(room);
-        this.spawns.push({ type, ...pos, elite: f >= 2 && r.chance(0.06 + f * 0.01) });
+        // some skeletons lie in wait as bone piles and rise when the hero comes close
+        const dormant = (type === 'grunt' || type === 'brute') && r.chance(0.3);
+        this.spawns.push({ type, ...pos, elite: f >= 2 && r.chance(0.06 + f * 0.01), dormant });
       }
       const pots = r.int(0, 3);
       for (let i = 0; i < pots; i++) this.pots.push(this.randomFloorIn(room));
@@ -307,6 +310,20 @@ export class Dungeon {
     if (this.isBoss) {
       // a reward chest waits in the start room of boss floors... after the fight it spawns in the arena
       this.pots.push(this.randomFloorIn(this.startRoom));
+    }
+    // spike traps: whole floor tiles that cycle up and down (from floor 2)
+    this.traps = [];
+    if (f >= 2 && !this.isBoss) {
+      for (const room of this.rooms) {
+        if (room === this.startRoom || !r.chance(0.4)) continue;
+        const n = r.int(1, Math.min(4, 1 + Math.floor(f / 3)));
+        for (let i = 0; i < n; i++) {
+          const tx = r.int(room.x + 1, room.x + room.w - 2);
+          const tz = r.int(room.z + 1, room.z + room.h - 2);
+          if (this.get(tx, tz) !== TILE.FLOOR || this.traps.some((t) => t.tx === tx && t.tz === tz)) continue;
+          this.traps.push({ tx, tz, x: (tx + 0.5) * T, z: (tz + 0.5) * T, phase: r.next() * 3 });
+        }
+      }
     }
   }
 
