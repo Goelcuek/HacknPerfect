@@ -60,7 +60,12 @@ function applyQuality(q) {
     game.composer = null;
   }
   if (q !== 'low') {
-    const composer = new EffectComposer(renderer);
+    // Post-processing renders offscreen, where the canvas's own antialiasing doesn't
+    // apply: give its buffers 4x MSAA instead (WebGL2 multisampled render targets).
+    const pr = renderer.getPixelRatio();
+    const target = new THREE.WebGLRenderTarget(w * pr, h * pr, { type: THREE.HalfFloatType, samples: Math.min(4, renderer.capabilities.maxSamples || 0) });
+    target.texture.name = 'EffectComposer.rt1';
+    const composer = new EffectComposer(renderer, target);
     composer.addPass(new RenderPass(game.scene, game.camera));
     bloom = new UnrealBloomPass(new THREE.Vector2(w / 2, h / 2), 0.55, 0.45, 0.8);
     composer.addPass(bloom);

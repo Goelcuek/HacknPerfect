@@ -200,8 +200,8 @@ Use **Graphics** on the title or pause screen to switch quality:
 | Setting | Effects                                  | Default on     |
 | ------- | ---------------------------------------- | -------------- |
 | Low     | No bloom or shadows, less clutter        |                |
-| Medium  | Bloom, ambient particles                 | Phones/tablets |
-| High    | Bloom, real-time shadows, full detail    | Desktop        |
+| Medium  | Bloom, 4x MSAA, ambient particles        | Phones/tablets |
+| High    | Bloom, 4x MSAA, shadows, full detail     | Desktop        |
 
 ## Code layout
 
