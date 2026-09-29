@@ -43,6 +43,24 @@ function shuffle(a) {
   return a;
 }
 
+// Light-space axes of the key light (it always shines along the same direction).
+const SUN_FWD = new THREE.Vector3(-5, -14, -3).normalize();
+const SUN_RIGHT = new THREE.Vector3().crossVectors(SUN_FWD, new THREE.Vector3(0, 1, 0)).normalize();
+const SUN_UP = new THREE.Vector3().crossVectors(SUN_RIGHT, SUN_FWD).normalize();
+const snapped = new THREE.Vector3();
+
+// Round a point's position across the light's view to the shadow map's texel size,
+// so the shadow map only ever shifts by whole texels.
+function snapToShadowTexels(x, y, z, light) {
+  const cam = light.shadow.camera;
+  const texel = (cam.right - cam.left) / light.shadow.mapSize.x;
+  snapped.set(x, y, z);
+  const r = Math.round(snapped.dot(SUN_RIGHT) / texel) * texel;
+  const u = Math.round(snapped.dot(SUN_UP) / texel) * texel;
+  const f = snapped.dot(SUN_FWD);
+  return snapped.copy(SUN_RIGHT).multiplyScalar(r).addScaledVector(SUN_UP, u).addScaledVector(SUN_FWD, f);
+}
+
 export class Game {
   constructor(renderer, ui, input) {
     this.renderer = renderer;
@@ -66,6 +84,7 @@ export class Game {
     sc.far = 40;
     this.sun.shadow.bias = -0.0005;
     this.sun.shadow.normalBias = 0.04;
+    this.sun.shadow.radius = 2;
     this.scene.add(this.sun);
     this.scene.add(this.sun.target);
     this.playerLight = new THREE.PointLight(0xffc68a, 5, 14, 1.2);
@@ -1351,9 +1370,11 @@ export class Game {
       l.color.setHex(s.color);
       l.intensity = 7 * (0.85 + Math.sin(t * 9 + i * 3.1) * 0.08 + Math.sin(t * 23 + i) * 0.06);
     });
-    // key light + shadow frustum follow the player
-    this.sun.position.set(p.x + 5, p.y + 14, p.z + 3);
-    this.sun.target.position.set(p.x, p.y, p.z);
+    // key light + shadow frustum follow the player, snapped to whole shadow-map texels
+    // (moving it by fractions of a texel makes every shadow edge crawl while walking)
+    const c = snapToShadowTexels(p.x, p.y, p.z, this.sun);
+    this.sun.position.set(c.x + 5, c.y + 14, c.z + 3);
+    this.sun.target.position.copy(c);
     dg.env.update(t, this.cam.target.lengthSq() ? this.cam.target : new THREE.Vector3(p.x, 1, p.z), this.pointScale);
   }
 

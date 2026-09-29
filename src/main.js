@@ -18,7 +18,7 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPrefere
 const isTouchDevice = matchMedia('(pointer: coarse)').matches;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.15;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap; // soft PCF costs noticeably more per pixel
 renderer.setSize(window.innerWidth, window.innerHeight, false);
 
 // Graphics quality: low (no bloom/shadows), medium (bloom), high (bloom + shadows)
@@ -47,10 +47,25 @@ const pmrem = new THREE.PMREMGenerator(renderer);
 game.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 game.scene.environmentIntensity = 0.28;
 
+const frameStats = {
+  sum: 0,
+  n: 0,
+  reset() {
+    this.sum = 0;
+    this.n = 0;
+  },
+};
 let bloom = null;
+// Render resolution (as a multiple of CSS pixels): the setting's ceiling, lowered
+// automatically when the device can't keep up (see adaptResolution).
+let maxPixelRatio = 1;
+let pixelRatio = 1;
 function applyQuality(q) {
   const dpr = window.devicePixelRatio;
-  renderer.setPixelRatio(Math.min(dpr, q === 'high' ? 2 : q === 'medium' ? (isTouchDevice ? 1.25 : 1.5) : 1));
+  maxPixelRatio = Math.min(dpr, q === 'high' ? 1.5 : q === 'medium' ? (isTouchDevice ? 1.25 : 1.5) : 1);
+  pixelRatio = maxPixelRatio;
+  frameStats.reset();
+  renderer.setPixelRatio(pixelRatio);
   renderer.shadowMap.enabled = q === 'high';
   const w = window.innerWidth;
   const h = window.innerHeight;
@@ -244,12 +259,36 @@ document.addEventListener('pointerlockchange', () => {
   if (!document.pointerLockElement && game.state === 'play' && !input.isTouch) game.pause();
 });
 
+// Dynamic resolution: if frames average slower than ~48 fps for a second of play,
+// render at a lower resolution (down to 1 pixel per CSS pixel, or 0.75 on Low).
+function adaptResolution(ms) {
+  if (game.state !== 'play' || document.hidden || ms > 250) return frameStats.reset();
+  frameStats.sum += ms;
+  if (++frameStats.n < 60) return;
+  const avg = frameStats.sum / frameStats.n;
+  frameStats.reset();
+  const floor = game.quality === 'low' ? 0.75 : Math.min(1, maxPixelRatio);
+  if (avg > 21 && pixelRatio > floor) {
+    pixelRatio = Math.max(floor, pixelRatio - 0.25);
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    renderer.setPixelRatio(pixelRatio);
+    renderer.setSize(w, h, false);
+    if (game.composer) {
+      game.composer.setPixelRatio(pixelRatio);
+      game.composer.setSize(w, h);
+    }
+  }
+}
+
 let last = performance.now();
 function frame(now) {
   requestAnimationFrame(frame);
-  const dt = Math.min(0.05, (now - last) / 1000);
+  const ms = now - last;
+  const dt = Math.min(0.05, ms / 1000);
   last = now;
   if (window.__manual) return;
+  adaptResolution(ms);
   step(dt);
   if (game.player) game.render();
 }

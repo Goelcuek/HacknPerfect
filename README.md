@@ -203,6 +203,10 @@ Use **Graphics** on the title or pause screen to switch quality:
 | Medium  | Bloom, 4x MSAA, ambient particles        | Phones/tablets |
 | High    | Bloom, 4x MSAA, shadows, full detail     | Desktop        |
 
+Every setting also lowers its render resolution automatically (in 0.25 steps) when the game
+averages under ~48 fps, so a slow device drops a little sharpness instead of frame rate. The
+High shadows are snapped to whole shadow-map texels, so their edges don't crawl while you walk.
+
 ## Code layout
 
 | File              | Purpose                                                         |
