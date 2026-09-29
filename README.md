@@ -156,7 +156,12 @@ chains dashes between targets.
 - **Elites** carry one or two affixes, shown in their name tag: Swift, Vampiric (heals when it hits
   you), Explosive (detonates after death), Shielded (a bubble soaks damage), Frenzied (attacks
   faster) and Arcane (sprays orbs).
-- **Death is permanent.** Your best floor is saved in the browser.
+- **Runs are saved.** A solo run saves itself every couple of seconds and whenever you leave the
+  app or close the tab. The title screen then offers **Continue**: same floor and layout, the
+  monsters you killed stay dead, opened chests stay open, and you stand where you left off with
+  your gear, skills, blessings, gold and health (closing on a reward screen reopens it).
+  **Save & quit** is in the pause menu; **Abandon run** throws the save away.
+- **Death is permanent.** Dying ends the run and deletes its save. Your best floor is kept.
 
 ## Graphics
 
@@ -210,6 +215,7 @@ Use **Graphics** on the title or pause screen to switch quality:
 | `src/items.js`    | Item generation, rarities, affixes, shrine blessings            |
 | `src/input.js`    | Keyboard / mouse / touch (joystick, swipe-to-skill)             |
 | `src/ui.js`       | HUD, minimap, loot card, class select, skill picks, menus       |
+| `src/save.js`     | Mid-run save / resume (localStorage)                            |
 | `src/net.js`      | Multiplayer: PIN hosting/joining, protocol, enemy sync, revive  |
 | `src/remote.js`   | Other players' heroes, interpolated and animated from the network |
 | `src/effects.js`  | Particles, slashes, rings, lightning, meteors, damage numbers   |

@@ -63,6 +63,11 @@ export class UI {
     document.body.classList.remove('playing');
     const cls = best && best.cls && CLASSES[best.cls] ? ` as ${CLASSES[best.cls].name}` : '';
     $('bestText').textContent = best && best.floor ? `Best: floor ${best.floor}${cls} · ${best.kills} kills` : '';
+    // a saved run: offer to pick it back up
+    const save = this.savedRun;
+    $('continueBtn').classList.toggle('hidden', !save);
+    $('playBtn').textContent = save ? '▶ New run' : '▶ Play';
+    if (save) $('continueInfo').textContent = `${CLASSES[save.cls]?.icon || ''} ${CLASSES[save.cls]?.name || ''} · floor ${save.floor} · ${save.p?.gold || 0} gold`;
   }
 
   showHUD() {
@@ -376,6 +381,9 @@ export class UI {
 
   showPause(game) {
     this.show('pause');
+    // multiplayer runs aren't saved; in solo, closing the game resumes later anyway
+    $('saveQuitBtn').classList.toggle('hidden', !!game.net.mode);
+    $('quitBtn').textContent = game.net.mode ? 'Leave game' : 'Abandon run';
     const p = game.player;
     $('gear').innerHTML = SLOTS.map((slot) => {
       const it = p.equipment[slot];
@@ -531,6 +539,8 @@ export class UI {
     $('titleBtn').onclick = handlers.title;
     $('resumeBtn').onclick = handlers.resume;
     $('quitBtn').onclick = handlers.quit;
+    $('saveQuitBtn').onclick = handlers.saveQuit;
+    $('continueBtn').onclick = handlers.resume_run;
     $('muteBtn').onclick = () => {
       setMuted(!isMuted());
       $('muteBtn').textContent = `Sound: ${isMuted() ? 'off' : 'on'}`;

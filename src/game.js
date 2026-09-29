@@ -16,6 +16,7 @@ import { propModel, hingeLid, gearModel } from './assets.js';
 import { sfx } from './audio.js';
 import { clamp, angleDiff, rng } from './utils.js';
 import { Net } from './net.js';
+import { readSave, writeSave, clearSave, packItem, unpackItem, replayBlessings } from './save.js';
 
 const BEST_KEY = 'hacknperfect.best';
 
@@ -202,6 +203,7 @@ export class Game {
 
   // ------------------------------------------------------------------ run
   startRun(clsId) {
+    if (!this.net.mode) clearSave();
     this.inRun = true;
     this.combo = 0;
     this.comboT = 0;
@@ -292,8 +294,12 @@ export class Game {
     this.effects.clear();
   }
 
-  loadFloor(n, quiet = false, seed = null) {
+  // restore: a saved run's floor state (monsters killed, chests opened, barrels broken)
+  loadFloor(n, quiet = false, seed = null, restore = null) {
     this.clearFloor();
+    this.killedKeys = new Set(restore?.killed || []);
+    this.openedChests = new Set(restore?.chests || []);
+    this.brokenPots = new Set(restore?.pots || []);
     this.floor = n;
     this.floorSeed = seed ?? (Math.random() * 2 ** 31) | 0;
     this.nextSeed = null;
@@ -343,9 +349,13 @@ export class Game {
     this.cam.pos.set(p.x - Math.sin(p.heading) * 6, 4, p.z - Math.cos(p.heading) * 6);
 
     // in multiplayer the host owns the monsters; clients get them over the network
-    if (!this.net.isClient) for (const sp of dg.spawns) this.spawnEnemy(sp.type, sp.x, sp.z, false, sp.elite, { dormant: sp.dormant });
-    for (const c of dg.chests) this.spawnChest(c.x, c.z);
-    dg.pots.forEach((pt, i) => this.spawnPot(pt.x, pt.z, i));
+    if (!this.net.isClient)
+      dg.spawns.forEach((sp, i) => {
+        if (this.killedKeys.has('s' + i)) return;
+        this.spawnEnemy(sp.type, sp.x, sp.z, false, sp.elite, { dormant: sp.dormant }).saveKey = 's' + i;
+      });
+    dg.chests.forEach((c, i) => this.spawnChest(c.x, c.z, false, i));
+    dg.pots.forEach((pt, i) => !this.brokenPots.has(i) && this.spawnPot(pt.x, pt.z, i));
     for (const tr of dg.traps || []) this.spawnTrap(tr);
     this.spawnPortal(ex.x, ex.z);
     this.flowTimer = 0;
@@ -421,6 +431,7 @@ export class Game {
       if (raised >= n) break;
       this.corpses.splice(this.corpses.indexOf(c), 1);
       c.resurrect();
+      if (c.saveKey) this.killedKeys.delete(c.saveKey);
       this.enemies.push(c);
       if (this.net.live) this.net.broadcast('erez', { id: c.id });
       fx.ring(c.x, c.z, 1.4, 0x9a66ff, 0.5);
@@ -453,12 +464,12 @@ export class Game {
     return this._chestMats;
   }
 
-  spawnChest(x, z, rich = false) {
+  spawnChest(x, z, rich = false, idx = -1) {
     // from floor 2 some chests have teeth
     // (decided from the position so every player in a session agrees)
     const roll = Math.abs(Math.sin(x * 12.9898 + z * 78.233 + this.floor * 37.719) * 43758.5453) % 1;
     if (!rich && this.floor >= 2 && roll < 0.15 + Math.min(0.1, this.floor * 0.01)) {
-      if (!this.net.isClient) this.spawnEnemy('mimic', x, z, false, false, { mimic: true });
+      if (!this.net.isClient && !this.killedKeys?.has('c' + idx)) this.spawnEnemy('mimic', x, z, false, false, { mimic: true }).saveKey = 'c' + idx;
       return;
     }
     const name = rich ? 'chest_gold' : 'chest';
@@ -471,7 +482,13 @@ export class Game {
     g.position.set(x, 0, z);
     g.rotation.y = rng.next() * Math.PI * 2;
     this.scene.add(g);
-    this.chests.push({ x, z, mesh: g, lid, open: false, rich, t: 0 });
+    const chest = { x, z, mesh: g, lid, open: false, rich, t: 0, idx };
+    this.chests.push(chest);
+    if (idx >= 0 && this.openedChests?.has(idx)) {
+      chest.open = true;
+      chest.t = 1;
+      if (lid) lid.rotation.x = -1.75;
+    }
   }
 
   // Breakables: barrels and crates that burst into gold, potions or splinters.
@@ -1105,6 +1122,7 @@ export class Game {
 
   killEnemy(e, fromX = e.x, fromZ = e.z) {
     e.alive = false;
+    if (e.saveKey) this.killedKeys.add(e.saveKey);
     e.startDeath(fromX, fromZ);
     this.corpses.push(e);
     const net = this.net.isHost && this.net.live;
@@ -1173,6 +1191,7 @@ export class Game {
 
   breakPot(i) {
     const pt = this.pots[i];
+    if (pt.id >= 0) this.brokenPots?.add(pt.id);
     this.pots.splice(i, 1);
     this.scene.remove(pt.mesh);
     this.effects.burst(pt.x, 0.4, pt.z, 0x9a6b45, 18, 6, 0.16, 0.55);
@@ -1186,6 +1205,7 @@ export class Game {
 
   openChest(c) {
     c.open = true;
+    if (c.idx >= 0) this.openedChests.add(c.idx);
     sfx.pickup();
     this.effects.burst(c.x, 0.8, c.z, 0xffd34d, 20, 6, 0.15, 0.7);
     this.dropGold(c.x, c.z, Math.round((12 + this.floor * 6) * this.player.final.goldMult * (c.rich ? 3 : 1)));
@@ -1283,6 +1303,11 @@ export class Game {
     }
     this.ui.setItemCard(this.nearItem ? this.nearItem.item : null, this.nearItem ? p.equipment[this.nearItem.item.slot] : null);
     if (input.pressed.interact && this.nearItem) this.equipNearItem();
+    this.saveT = (this.saveT ?? 2) - rawDt;
+    if (this.saveT <= 0) {
+      this.saveT = 2;
+      this.saveRun();
+    }
     if (input.pressed.pause) this.pause();
 
     if (p.dead && this.state === 'play') {
@@ -1707,6 +1732,89 @@ export class Game {
     this.rerolls = 0;
     this.shrine = rollBlessings(this.player, 2).map((b) => ({ b, sold: false }));
     this.offerRewards(false);
+    this.saveRun();
+  }
+
+  // ------------------------------------------------------------ save / resume
+  // Solo runs only (a multiplayer world belongs to the host's session).
+  saveRun() {
+    if (!this.inRun || this.net.mode || !this.dungeon || !this.player || this.state === 'dead' || this.player.dead) return;
+    const p = this.player;
+    writeSave({
+      cls: p.clsId,
+      floor: this.floor,
+      seed: this.floorSeed,
+      reward: this.state === 'upgrade' ? 1 : 0,
+      runTime: this.runTime,
+      killed: [...this.killedKeys],
+      chests: [...this.openedChests],
+      pots: [...this.brokenPots],
+      loot: this.pickups.filter((pk) => pk.kind === 'item').map((pk) => ({ x: pk.x, z: pk.z, item: packItem(pk.item) })),
+      p: {
+        x: p.x,
+        z: p.z,
+        h: p.heading,
+        hp: p.hp,
+        gold: p.gold,
+        kills: p.kills,
+        skills: p.skills,
+        up: p.upgradeCounts,
+        eq: { weapon: packItem(p.equipment.weapon), armor: packItem(p.equipment.armor), charm: packItem(p.equipment.charm) },
+      },
+    });
+  }
+
+  resumeRun(s = readSave()) {
+    if (!s) return false;
+    this.inRun = true;
+    this.combo = 0;
+    this.comboT = 0;
+    this.bestCombo = 0;
+    this.catchUp = 0;
+    this.setPlayer(new Player(this, s.cls));
+    const p = this.player;
+    replayBlessings(p, s.p.up);
+    for (const slot of ['weapon', 'armor', 'charm']) p.equipment[slot] = unpackItem(s.p.eq?.[slot]);
+    if (!p.equipment.weapon) this.giveStarterWeapon(p);
+    p.recompute();
+    p.dress();
+    p.skills = (s.p.skills || [null, null, null, null]).map((k) => (k && k.id ? { id: k.id, level: k.level } : null));
+    p.gold = s.p.gold || 0;
+    p.kills = s.p.kills || 0;
+    this.runTime = s.runTime || 0;
+    this.loadFloor(s.floor, false, s.seed, s);
+    // back where the hero stood (the level is rebuilt identically from the seed)
+    if (typeof s.p.x === 'number' && !this.dungeon.blocked(s.p.x, s.p.z, p.radius, 1)) {
+      p.x = s.p.x;
+      p.z = s.p.z;
+      p.heading = s.p.h || 0;
+      this.cam.yaw = p.heading;
+      this.cam.pos.set(p.x - Math.sin(p.heading) * 6, 4, p.z - Math.cos(p.heading) * 6);
+    }
+    p.hp = Math.max(1, Math.min(p.final.maxHp, s.p.hp ?? p.final.maxHp));
+    for (const l of s.loot || []) {
+      const pk = this.dropItem(l.x, l.z, unpackItem(l.item));
+      pk.vx = pk.vz = 0;
+    }
+    if (!this.enemies.some((e) => e.alive && !e.disguised && !e.dormant)) {
+      this.floorCleared = true;
+      this.activatePortal();
+    }
+    this.ui.showHUD();
+    this.input.reset();
+    if (s.reward) {
+      // closed on the reward screen: pick up right there
+      this.state = 'upgrade';
+      this.rerolls = 0;
+      this.shrine = rollBlessings(p, 2).map((b) => ({ b, sold: false }));
+      this.offerRewards(false);
+    } else if (!p.skills.some(Boolean)) {
+      this.state = 'skillpick';
+      this.offerRewards(true);
+    } else this.state = 'play';
+    this.ui.refreshSkills(p);
+    this.ui.toast(`Welcome back — floor ${this.floor}`, 2.2);
+    return true;
   }
 
   // Client: the host moved the party to the next floor.
@@ -1765,6 +1873,7 @@ export class Game {
       if (advance) this.loadFloor(this.nextFloor ?? this.floor + 1, false, this.nextSeed);
       this.nextFloor = null;
       this.state = 'play';
+      this.saveRun();
       this.input.reset();
       this.ui.refreshSkills(p);
       if (first) {
@@ -1835,6 +1944,7 @@ export class Game {
   }
 
   showDeath() {
+    if (!this.net.mode) clearSave();
     const p = this.player;
     const best = loadBest();
     const newBest = this.floor > best.floor || (this.floor === best.floor && p.kills > best.kills);

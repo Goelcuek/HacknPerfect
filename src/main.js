@@ -11,6 +11,7 @@ import { UI } from './ui.js';
 import { Game, loadBest } from './game.js';
 import { initAudio } from './audio.js';
 import { loadAssets } from './assets.js';
+import { readSave, clearSave } from './save.js';
 
 const canvas = document.getElementById('game');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -93,6 +94,7 @@ function toTitle() {
   if (game.net.mode) game.net.leave();
   game.state = 'title';
   game.setupBackdrop(chosenClass);
+  ui.savedRun = readSave();
   ui.showTitle(loadBest());
 }
 
@@ -132,8 +134,22 @@ ui.bindMenus({
   title: toTitle,
   resume: () => game.resume(),
   quit: () => {
+    // abandoning a solo run throws its save away
+    if (!game.net.mode) clearSave();
     ui.hidePause();
     toTitle();
+  },
+  saveQuit: () => {
+    game.saveRun();
+    ui.hidePause();
+    toTitle();
+  },
+  resume_run: () => {
+    initAudio();
+    const s = readSave();
+    if (!s) return toTitle();
+    chosenClass = s.cls;
+    game.resumeRun(s);
   },
   equip: () => game.equipNearItem(),
   salvage: () => game.salvageNearItem(),
@@ -211,8 +227,13 @@ window.__androidBack = () => {
 };
 
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) game.pause();
+  if (document.hidden) {
+    game.saveRun();
+    game.pause();
+  }
 });
+// closing the tab / app keeps the run
+window.addEventListener('pagehide', () => game.saveRun());
 document.addEventListener('pointerlockchange', () => {
   // leaving pointer lock with Esc on desktop pauses the game
   if (!document.pointerLockElement && game.state === 'play' && !input.isTouch) game.pause();

@@ -1302,3 +1302,20 @@ body:not(.touch) .pin-pad {
 #party .member.away {
   opacity: 0.55;
 }
+
+/* ------------------------------------------------------------ continue run */
+#continueBtn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 10px;
+}
+#continueBtn.hidden {
+  display: none;
+}
+#continueBtn small {
+  font-size: 0.62em;
+  font-weight: 600;
+  opacity: 0.8;
+  margin-top: 2px;
+}
