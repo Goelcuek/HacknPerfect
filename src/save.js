@@ -6,7 +6,7 @@
 import { RARITIES, BLESSINGS } from './items.js';
 
 const KEY = 'hacknperfect.run';
-const VERSION = 2; // 2: more monsters per room (older saves no longer line up)
+const VERSION = 3; // 2: more monsters per room, 3: raised platforms (older saves no longer line up)
 
 function store() {
   try {

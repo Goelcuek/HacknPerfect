@@ -10,7 +10,7 @@ import { G } from './rig.js';
 import { brickTextures, flagstoneTextures, woodTextures, rugTexture, glowTexture, cobwebTexture, grimeTexture } from './textures.js';
 import { makeRng } from './utils.js';
 import { propGeometry } from './assets.js';
-import { T, WALL_H, BLOCK_H, TILE } from './tiles.js';
+import { T, WALL_H, BLOCK_H, STEP_H, STAIR_DIRS, TILE } from './tiles.js';
 
 const CHUNK = T * 12;
 const DIRS = [
@@ -879,6 +879,7 @@ export function buildEnvironment(dg, quality = 'high') {
   const wallTiles = [];
   const blockTiles = [];
   const pillarTiles = [];
+  const raised = new Map(); // platform height -> tiles standing on a stone body
   const woodRooms = new Set(dg.rooms.filter((rm) => !rm.boss && rm !== dg.startRoom && r.next() < 0.18));
   const roomOf = (x, z) => dg.rooms.find((rm) => x >= rm.x && x < rm.x + rm.w && z >= rm.z && z < rm.z + rm.h);
   const solidWall = (x, z) => {
@@ -894,8 +895,10 @@ export function buildEnvironment(dg, quality = 'high') {
         if (adj) wallTiles.push([x, z]);
       } else {
         const rm = roomOf(x, z);
-        if (rm && woodRooms.has(rm)) woodTiles.push([x, z]);
-        else floorTiles.push([x, z]);
+        const e = dg.elev[z * W + x];
+        if (rm && woodRooms.has(rm)) woodTiles.push([x, z, e]);
+        else floorTiles.push([x, z, e]);
+        if (e > 0) (raised.get(e) || raised.set(e, []).get(e)).push([x, z]);
         if (t === TILE.BLOCK) blockTiles.push([x, z]);
         if (t === TILE.PILLAR) pillarTiles.push([x, z]);
       }
@@ -917,8 +920,8 @@ export function buildEnvironment(dg, quality = 'high') {
   const makeInst = (geo, material, list, y, jitter, baseColor, cast = false) => {
     if (!list.length) return null;
     const mesh = new THREE.InstancedMesh(geo, material, list.length);
-    list.forEach(([x, z], i) => {
-      m4.makeTranslation((x + 0.5) * T, y + (geo.userData.rot ? (r.next() - 0.5) * 0.025 : 0), (z + 0.5) * T);
+    list.forEach(([x, z, dy = 0], i) => {
+      m4.makeTranslation((x + 0.5) * T, y + dy + (geo.userData.rot ? (r.next() - 0.5) * 0.025 : 0), (z + 0.5) * T);
       if (geo.userData.rot) m4.multiply(new THREE.Matrix4().makeRotationY(((x * 7 + z * 13) % 4) * (Math.PI / 2)));
       mesh.setMatrixAt(i, m4);
       color.setHex(baseColor).offsetHSL(0, 0, (r.next() - 0.5) * jitter);
@@ -944,6 +947,47 @@ export function buildEnvironment(dg, quality = 'high') {
   makeInst(blockGeo, mats.woodI, blockTiles, BLOCK_H / 2, 0.1, 0xa08060, true);
   const pillarGeo = new THREE.CylinderGeometry(T * 0.36, T * 0.4, WALL_H, 12);
   makeInst(pillarGeo, mats.pillarI, pillarTiles, WALL_H / 2, 0.08, th.wall, true);
+  // stone bodies under raised platforms (the floor slab sits on top)
+  const platTint = new THREE.Color(th.wall).offsetHSL(0, -0.04, -0.06).getHex();
+  for (const [e, list] of raised) {
+    const h = e - 0.3;
+    const geo = new THREE.BoxGeometry(T, h, T);
+    const uvb = geo.attributes.uv;
+    for (let i = 0; i < uvb.count; i++) uvb.setY(i, uvb.getY(i) * (h / T));
+    makeInst(geo, mats.wallI, list, h / 2, 0.08, platTint, true);
+  }
+  // platform edges: a capstone lip and a plinth wherever the floor drops away
+  const edgeTint = new THREE.Color(th.wall).offsetHSL(0, -0.05, 0.03).getHex();
+  for (const list of raised.values())
+    for (const [x, z] of list) {
+      const e = dg.elev[z * W + x];
+      if (dg.stair[z * W + x]) continue;
+      for (const [dx, dz] of DIRS) {
+        const n = dg.get(x + dx, z + dz);
+        if (n === TILE.WALL || n === TILE.PILLAR) continue;
+        if (dg.edgeHeight(x + dx, z + dz, -dx, -dz) > e - 0.3) continue;
+        const F = frame((x + 0.5 + dx * 0.5) * T, 0, (z + 0.5 + dz * 0.5) * T, Math.atan2(dx, dz));
+        put(b, F, G.box(T + 0.02, 0.16, 0.26), 'stone', [0, e - 0.02, -0.06], null, 1, edgeTint);
+        put(b, F, G.box(T + 0.02, 0.32, 0.12), 'stone', [0, 0.16, 0.05], null, 1, edgeTint);
+        // a few stones jutting from the face
+        for (let k = 0; k < 2; k++) put(b, F, G.box(0.35 + r.next() * 0.3, 0.2, 0.08), 'stone', [(r.next() - 0.5) * 1.3, 0.45 + r.next() * (e - 0.8), 0.03], null, 1, new THREE.Color(edgeTint).offsetHSL(0, 0, (r.next() - 0.5) * 0.1).getHex());
+      }
+    }
+  // stairs: six solid steps per tile, climbing one STEP_H
+  const stepTint = new THREE.Color(th.floor).offsetHSL(0, 0, 0.04).getHex();
+  for (let z = 0; z < H; z++)
+    for (let x = 0; x < W; x++) {
+      const s = dg.stair[z * W + x];
+      if (!s) continue;
+      const [dx, dz] = STAIR_DIRS[s - 1];
+      const e = dg.elev[z * W + x];
+      const F = frame((x + 0.5) * T, e, (z + 0.5) * T, Math.atan2(dx, dz));
+      for (let k = 0; k < 6; k++) {
+        const top = (STEP_H * (k + 0.5)) / 6 + 0.02;
+        put(b, F, G.box(T - 0.02, top + 0.2, T / 6), 'stone', [0, (top - 0.2) / 2, -T / 2 + (k + 0.5) * (T / 6)], null, 1, new THREE.Color(stepTint).offsetHSL(0, 0, (k % 2) * 0.03).getHex());
+        put(b, F, G.box(T - 0.02, 0.05, 0.08), 'stone', [0, top - 0.01, -T / 2 + k * (T / 6) + 0.04], null, 1, edgeTint);
+      }
+    }
   // broken, uneven wall tops: a few capstones per tile at varied heights
   const capTint = new THREE.Color(th.wall).offsetHSL(0, 0, 0.04).getHex();
   for (const [x, z] of wallTiles) {
@@ -978,6 +1022,8 @@ export function buildEnvironment(dg, quality = 'high') {
       const n = dg.get(x + dx, z + dz);
       if (n === TILE.WALL || n === TILE.PILLAR) continue;
       faceIdx++;
+      // torches and wall details hang at fixed heights: only over ground-level floor
+      const lowFloor = dg.flatGround(x + dx, z + dz);
       const ang = Math.atan2(dx, dz);
       const F = frame((x + 0.5 + dx * 0.5) * T, 0, (z + 0.5 + dz * 0.5) * T, ang);
       put(b, F, G.box(T + 0.04, 0.34, 0.18), 'stone', [0, 0.17, 0.09], null, 1, wallTint);
@@ -1008,14 +1054,14 @@ export function buildEnvironment(dg, quality = 'high') {
         }
       }
       // timber framing in some rooms and corridors
-      if (th.id !== 'void' && Math.abs(hash >> 3) % 7 === 0 && n === TILE.FLOOR) {
+      if (th.id !== 'void' && Math.abs(hash >> 3) % 7 === 0 && lowFloor) {
         put(b, F, G.box(0.26, WALL_H - 0.5, 0.2), 'wood', [0.62, (WALL_H - 0.5) / 2, 0.1], null, 1, 0x8a6a4a);
         put(b, F, G.box(T + 0.02, 0.24, 0.2), 'wood', [0, WALL_H - 0.75, 0.1], null, 1, 0x8a6a4a);
         put(b, F, G.box(0.14, 1.3, 0.14), 'wood', [0.2, WALL_H - 1.25, 0.12], [0, 0, -0.75], 1, 0x7a5a3a);
         for (const y of [1.2, WALL_H - 0.75]) put(b, F, G.sphere(0.035, 6, 4), 'metal', [0.62, y, 0.21], null, 1, 0x404048);
       }
       // torches every few faces, otherwise a themed detail
-      if (faceIdx % 6 === 0 && n === TILE.FLOOR) {
+      if (faceIdx % 6 === 0 && lowFloor) {
         put(b, F, G.box(0.14, 0.44, 0.08), 'metal', [0, 2.15, 0.04], null, 1, 0x444450);
         put(b, F, G.box(0.06, 0.06, 0.42), 'metal', [0, 2.0, 0.24], [0.35, 0, 0], 1, 0x444450);
         put(b, F, G.lathe('sconce', [[0.001, 0], [0.05, 0], [0.16, 0.14], [0.14, 0.16], [0.001, 0.1]], 8), 'metal', [0, 2.3, 0.45], null, 1, 0x444450);
@@ -1023,7 +1069,7 @@ export function buildEnvironment(dg, quality = 'high') {
         const w = new THREE.Vector3(0, 2.55, 0.45).applyMatrix4(F.m);
         fires.push({ x: w.x, y: w.y, z: w.z, size: 0.42, tint: 0xff7a2a, glow: 2.4, light: true });
         torchSpots.push([w.x, w.z]);
-      } else if (r.next() < 0.42 * detailRate && n === TILE.FLOOR) {
+      } else if (r.next() < 0.42 * detailRate && lowFloor) {
         wallDetail(pickWeighted(r, details), b, fires, F, r, th, glows);
       }
     }
@@ -1107,10 +1153,10 @@ export function buildEnvironment(dg, quality = 'high') {
     for (let i = 0; i < nClutter; i++) {
       const tx = rm.x + rr.int(0, rm.w - 1);
       const tz = rm.z + rr.int(0, rm.h - 1);
-      if (dg.get(tx, tz) !== TILE.FLOOR) continue;
+      if (dg.get(tx, tz) !== TILE.FLOOR || dg.stair[tz * W + tx]) continue;
       const px = (tx + 0.1 + rr.next() * 0.8) * T;
       const pz = (tz + 0.1 + rr.next() * 0.8) * T;
-      const F = frame(px, 0, pz, rr.next() * 6.28);
+      const F = frame(px, dg.elev[tz * W + tx], pz, rr.next() * 6.28);
       const roll = rr.next();
       if (roll < 0.25) put(b, F, G.dodeca(0.12 + rr.next() * 0.12), 'stone', [0, 0.04, 0], [rr.next(), rr.next(), 0], [1, 0.6, 1], wallTint);
       else if (roll < 0.4) put(b, F, G.capsule(0.03, 0.3, 4), 'bone', [0, 0.04, 0], [Math.PI / 2, 0, rr.next()]);

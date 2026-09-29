@@ -480,7 +480,7 @@ export class Net {
         return;
       }
       case 'eproj':
-        if (m.f === g.floor) g.spawnEnemyProjectile(m.x, m.y, m.z, m.h, m.sp, m.dmg, m.k);
+        if (m.f === g.floor) g.spawnEnemyProjectile(m.x, m.y, m.z, m.h, m.sp, m.dmg, m.k, m.vy || 0);
         return;
       case 'shock':
         if (m.f === g.floor) g.shockwave(m.x, m.z, m.r, m.dmg, this.enemyById(m.src), !!m.big);

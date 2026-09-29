@@ -569,7 +569,11 @@ export class Player {
         if (cur.land) cur.land(cur);
       }
     } else if (this.y > ground + 0.02) {
-      this.grounded = false;
+      // walking down stairs: stay on them instead of hopping off every step
+      if (wasGrounded && this.vy <= 0 && this.y - ground < 0.35) {
+        this.y = ground;
+        this.vy = 0;
+      } else this.grounded = false;
     }
     if (wasGrounded && !this.grounded) this.coyote = 0.1;
     if (!this.grounded) this.coyote = Math.max(0, this.coyote - dt);

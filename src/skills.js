@@ -146,7 +146,7 @@ export const SKILLS = {
         g.schedule(0.18 + i * 0.07, () => {
           const x = ox + hx * (1.6 + i * 1.5);
           const z = oz + hz * (1.6 + i * 1.5);
-          if (g.dungeon.heightAtPoint(x, z) > 2) return;
+          if (g.dungeon.groundBlocked(ox, oz, x, z)) return;
           g.effects.burst(x, 0.2, z, 0x8a7a60, 10, 7, 0.22, 0.6);
           g.effects.spikes(x, z, 0x7a6a50);
           g.effects.ring(x, z, 1.7, 0xffa060, 0.3);
@@ -267,7 +267,7 @@ export const SKILLS = {
         const h = p.heading + (n > 1 ? (i - 0.5) * 0.6 : 0);
         let x = p.x + Math.sin(h) * 4.5;
         let z = p.z + Math.cos(h) * 4.5;
-        if (g.dungeon.heightAtPoint(x, z) > 2) {
+        if (g.dungeon.groundBlocked(p.x, p.z, x, z)) {
           x = p.x;
           z = p.z;
         }
@@ -893,7 +893,7 @@ evo('fissure', {
         g.schedule(0.18 + i * 0.06, () => {
           const x = ox + hx * (1.6 + i * 1.5);
           const z = oz + hz * (1.6 + i * 1.5);
-          if (g.dungeon.heightAtPoint(x, z) > 2) return;
+          if (g.dungeon.groundBlocked(ox, oz, x, z)) return;
           g.effects.spikes(x, z, 0x7a5040, 1.1);
           g.effects.burst(x, 0.3, z, 0xff7a2e, 8, 7, 0.2, 0.5);
           if (i % 2 === 0) g.spawnFirePatch(x, z);
@@ -964,7 +964,7 @@ evo('pierce', {
         for (let i = 1; i < 12; i++) {
           const x = p.x + hx * i * 2;
           const z = p.z + hz * i * 2;
-          if (g.dungeon.heightAtPoint(x, z) > 2) break;
+          if (g.dungeon.groundBlocked(p.x, p.z, x, z)) break;
           g.schedule(i * 0.04, () => g.spawnFirePatch(x, z));
         }
         g.shoot({
@@ -1058,7 +1058,7 @@ evo('trap', {
       const a = (i / 6) * Math.PI * 2;
       let x = cx + Math.cos(a) * 3.5;
       let z = cz + Math.sin(a) * 3.5;
-      if (g.dungeon.heightAtPoint(x, z) > 2) {
+      if (g.dungeon.groundBlocked(cx, cz, x, z)) {
         x = cx;
         z = cz;
       }

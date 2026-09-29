@@ -156,6 +156,12 @@ chains dashes between targets.
 - **Chests, barrels and crates.** Chests open when you walk up to them; barrels and crates burst
   into gold and potions when hit. From floor 2 some chests are **Mimics** that lunge when you get
   close (they drop great loot).
+- **Platforms and stairs.** Many rooms have raised platforms in their corners, one jump (1.2 m)
+  or a double jump (2.4 m) high, each with a flight of stairs. Skeleton archers and mages like to
+  shoot from up there; melee skeletons have to take the stairs, and nothing climbs a ledge but
+  you. Shots aim up or down at their target, melee and ground attacks only reach the level they
+  land on, and shockwaves don't travel up or down a ledge. Getting knocked off a platform drops
+  you (or a skeleton) to the floor below. The minimap shows raised floor lighter and stairs gold.
 - **Spike traps.** Floor tiles rattle, then fire spikes. They hurt enemies too.
 - **Shrine.** Between floors, spend gold on stat blessings (damage, attack speed, extra dash
   charge, triple jump, blazing dash, thorns…), a full heal, or a reroll of the skill choices.

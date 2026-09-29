@@ -3,6 +3,11 @@
 export const T = 2; // world units per tile
 export const WALL_H = 4;
 export const BLOCK_H = 1.2;
+// Raised floor: platforms stand 1 or 2 steps of this (one jump / a double jump high),
+// and each stair tile climbs exactly one step.
+export const STEP_H = 1.2;
+// Stair directions: the way a stair tile climbs (index = code - 1).
+export const STAIR_DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
 // PROP tiles hold furniture and statues: solid, but not part of the wall mesh.
 export const TILE = { WALL: 0, FLOOR: 1, BLOCK: 2, PILLAR: 3, PROP: 4 };

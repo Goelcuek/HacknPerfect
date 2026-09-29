@@ -4,10 +4,10 @@
 import * as THREE from 'three';
 import { makeRng, clamp } from './utils.js';
 
-import { T, WALL_H, BLOCK_H, TILE, HEIGHT, THEMES } from './tiles.js';
+import { T, WALL_H, BLOCK_H, STEP_H, STAIR_DIRS, TILE, HEIGHT, THEMES } from './tiles.js';
 import { buildEnvironment, PROP_WEIGHTS } from './decor.js';
 
-export { T, WALL_H, BLOCK_H, TILE, THEMES };
+export { T, WALL_H, BLOCK_H, STEP_H, STAIR_DIRS, TILE, THEMES };
 
 export function themeForFloor(floor) {
   return THEMES[Math.floor((floor - 1) / 5) % THEMES.length];
@@ -43,6 +43,8 @@ export class Dungeon {
     this.w = W;
     this.h = H;
     this.tiles = new Uint8Array(W * H); // all WALL
+    this.elev = new Float32Array(W * H); // floor height of each tile (raised platforms)
+    this.stair = new Uint8Array(W * H); // 1-4: a stair climbing STEP_H toward STAIR_DIRS[code - 1]
     this.seen = new Uint8Array(W * H);
     this.rooms = [];
 
@@ -145,7 +147,7 @@ export class Dungeon {
           x = side === 2 ? room.x : room.x + room.w - 1;
         }
         if (Math.abs(x - room.cx) <= 1 || Math.abs(z - room.cz) <= 1) continue;
-        if (this.get(x, z) !== TILE.FLOOR) continue;
+        if (!this.flatGround(x, z)) continue;
         // face away from the adjacent wall
         let ang = null;
         for (const [dx, dz] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
@@ -241,6 +243,7 @@ export class Dungeon {
       }
       return;
     }
+    this.raisePlatforms(room);
     if (room.w >= 9 && room.h >= 9 && r.chance(0.5)) {
       for (const [ox, oz] of [
         [2, 2],
@@ -248,7 +251,7 @@ export class Dungeon {
         [2, room.h - 3],
         [room.w - 3, room.h - 3],
       ])
-        this.set(room.x + ox, room.z + oz, TILE.PILLAR);
+        if (this.flatGround(room.x + ox, room.z + oz)) this.set(room.x + ox, room.z + oz, TILE.PILLAR);
     }
     const blocks = r.int(1, 4);
     for (let i = 0; i < blocks; i++) {
@@ -257,17 +260,91 @@ export class Dungeon {
       const x = r.int(room.x + 1, room.x + room.w - 1 - bw);
       const z = r.int(room.z + 1, room.z + room.h - 1 - bh);
       let ok = true;
-      for (let dz = 0; dz < bh; dz++) for (let dx = 0; dx < bw; dx++) if (!clearOfCross(x + dx, z + dz) || this.get(x + dx, z + dz) !== TILE.FLOOR) ok = false;
+      for (let dz = 0; dz < bh; dz++) for (let dx = 0; dx < bw; dx++) if (!clearOfCross(x + dx, z + dz) || !this.flatGround(x + dx, z + dz)) ok = false;
       if (!ok) continue;
       for (let dz = 0; dz < bh; dz++) for (let dx = 0; dx < bw; dx++) this.set(x + dx, z + dz, TILE.BLOCK);
     }
+  }
+
+  // Raised platforms in a room's corners, each reached by a flight of stairs. They
+  // stay clear of the room's central cross, so corridors always arrive at ground level.
+  raisePlatforms(room) {
+    const r = this.rng;
+    if (room === this.startRoom || room.boss || !r.chance(0.65)) return;
+    const corners = [
+      [-1, -1],
+      [1, -1],
+      [-1, 1],
+      [1, 1],
+    ];
+    const want = room.w * room.h >= 70 && r.chance(0.5) ? 2 : 1;
+    let made = 0;
+    for (let k = 0; k < 4 && made < want; k++) {
+      const [sx, sz] = corners.splice(r.int(0, corners.length - 1), 1)[0];
+      // the quadrant between the corner walls and the cross
+      const x0 = sx < 0 ? room.x : room.cx + 2;
+      const x1 = sx < 0 ? room.cx - 2 : room.x + room.w - 1;
+      const z0 = sz < 0 ? room.z : room.cz + 2;
+      const z1 = sz < 0 ? room.cz - 2 : room.z + room.h - 1;
+      const w = x1 - x0 + 1;
+      const d = z1 - z0 + 1;
+      if (w < 2 || d < 2) continue;
+      // stairs run from the platform's inner edge toward the wall, along x or z
+      const alongZ = w < 3 ? true : d < 3 ? false : r.chance(0.5);
+      const depth = alongZ ? d : w;
+      const steps = depth >= 4 && r.chance(0.55) ? 2 : 1;
+      if (depth < steps + 1) continue;
+      let clear = true;
+      for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) if (this.get(x, z) !== TILE.FLOOR) clear = false;
+      if (!clear) continue;
+      const reachBefore = this.reachCount();
+      const top = steps * STEP_H;
+      for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) this.elev[this.idx(x, z)] = top;
+      // the platform's inner corner (nearest the room centre) holds the stairs
+      const ix = sx < 0 ? x1 : x0;
+      const iz = sz < 0 ? z1 : z0;
+      for (let i = 0; i < steps; i++) {
+        // flight i climbs from i * STEP_H, i tiles in from the inner edge
+        const tx = alongZ ? ix : ix + sx * i;
+        const tz = alongZ ? iz + sz * i : iz;
+        const dir = alongZ ? (sz < 0 ? 4 : 3) : sx < 0 ? 2 : 1;
+        this.elev[this.idx(tx, tz)] = i * STEP_H;
+        this.stair[this.idx(tx, tz)] = dir;
+      }
+      // a corridor arriving through this corner would be walled off: undo it
+      if (this.reachCount() < reachBefore) {
+        for (let z = z0; z <= z1; z++)
+          for (let x = x0; x <= x1; x++) {
+            this.elev[this.idx(x, z)] = 0;
+            this.stair[this.idx(x, z)] = 0;
+          }
+        continue;
+      }
+      room.platforms = room.platforms || [];
+      room.platforms.push({ x0, x1, z0, z1, top });
+      made++;
+    }
+  }
+
+  // Walkable tiles a walker can reach from the start room.
+  reachCount() {
+    const d = this.bfs(this.startRoom.cx, this.startRoom.cz);
+    let n = 0;
+    for (let i = 0; i < d.length; i++) if (d[i] >= 0) n++;
+    return n;
+  }
+
+  // A plain floor tile at ground level (no platform or stairs).
+  flatGround(x, z) {
+    const i = this.idx(x, z);
+    return this.get(x, z) === TILE.FLOOR && this.elev[i] === 0 && !this.stair[i];
   }
 
   randomFloorIn(room, margin = 1, r = this.rng) {
     for (let i = 0; i < 40; i++) {
       const x = r.int(room.x + margin, room.x + room.w - 1 - margin);
       const z = r.int(room.z + margin, room.z + room.h - 1 - margin);
-      if (this.get(x, z) === TILE.FLOOR) return { x: (x + 0.5) * T, z: (z + 0.5) * T };
+      if (this.get(x, z) === TILE.FLOOR && !this.stair[this.idx(x, z)]) return { x: (x + 0.5) * T, z: (z + 0.5) * T };
     }
     return { x: (room.cx + 0.5) * T, z: (room.cz + 0.5) * T };
   }
@@ -285,7 +362,14 @@ export class Dungeon {
         break;
       }
     }
-    const pos = this.randomFloorIn(room, 1, r);
+    let pos = this.randomFloorIn(room, 1, r);
+    // shooters like the high ground
+    if ((type === 'archer' || type === 'mage') && room.platforms && r.chance(0.6)) {
+      const pl = r.pick(room.platforms);
+      const tx = r.int(pl.x0, pl.x1);
+      const tz = r.int(pl.z0, pl.z1);
+      if (!this.stair[this.idx(tx, tz)]) pos = { x: (tx + 0.5) * T, z: (tz + 0.5) * T };
+    }
     // some skeletons lie in wait as bone piles and rise when the hero comes close
     const dormant = (type === 'grunt' || type === 'brute') && r.chance(0.3);
     return { type, ...pos, elite: f >= 2 && r.chance(0.06 + f * 0.01), dormant };
@@ -339,7 +423,7 @@ export class Dungeon {
         for (let i = 0; i < n; i++) {
           const tx = r.int(room.x + 1, room.x + room.w - 2);
           const tz = r.int(room.z + 1, room.z + room.h - 2);
-          if (this.get(tx, tz) !== TILE.FLOOR || this.traps.some((t) => t.tx === tx && t.tz === tz)) continue;
+          if (!this.flatGround(tx, tz) || this.traps.some((t) => t.tx === tx && t.tz === tz)) continue;
           this.traps.push({ tx, tz, x: (tx + 0.5) * T, z: (tz + 0.5) * T, phase: r.next() * 3 });
         }
       }
@@ -362,11 +446,42 @@ export class Dungeon {
     if (x < 0 || z < 0 || x >= this.w || z >= this.h) return;
     this.tiles[z * this.w + x] = v;
   }
-  heightAtTile(x, z) {
-    return HEIGHT[this.get(x, z)];
+  // Surface height of tile (x, z); on stairs, at world point (px, pz) (or at their top
+  // when no point is given).
+  heightAtTile(x, z, px, pz) {
+    const t = this.get(x, z);
+    const h = HEIGHT[t];
+    if (h >= 100) return h;
+    const i = z * this.w + x;
+    const e = this.elev[i];
+    const s = this.stair[i];
+    if (!s) return h + e;
+    if (px === undefined) return e + STEP_H;
+    const [dx, dz] = STAIR_DIRS[s - 1];
+    const u = clamp(px / T - x, 0, 1);
+    const v = clamp(pz / T - z, 0, 1);
+    const f = dx > 0 ? u : dx < 0 ? 1 - u : dz > 0 ? v : 1 - v;
+    return e + STEP_H * f;
   }
   heightAtPoint(x, z) {
-    return this.heightAtTile(Math.floor(x / T), Math.floor(z / T));
+    return this.heightAtTile(Math.floor(x / T), Math.floor(z / T), x, z);
+  }
+  // Ground under a point, where effects sit: walls report the floor at their base.
+  floorAt(x, z) {
+    const h = this.heightAtPoint(x, z);
+    if (h < 100) return h;
+    const tx = clamp(Math.floor(x / T), 0, this.w - 1);
+    const tz = clamp(Math.floor(z / T), 0, this.h - 1);
+    return this.elev[this.idx(tx, tz)];
+  }
+  // Walls, pillars and props (not crates, platforms or stairs).
+  solidAt(x, z) {
+    return HEIGHT[this.get(Math.floor(x / T), Math.floor(z / T))] >= 100;
+  }
+  // Something running along the ground from (fx, fz) stops at (x, z): a wall, or the
+  // floor rising up a ledge.
+  groundBlocked(fx, fz, x, z) {
+    return this.solidAt(x, z) || this.floorAt(x, z) > this.floorAt(fx, fz) + 0.6;
   }
 
   // Highest tile under a circle footprint.
@@ -387,7 +502,7 @@ export class Dungeon {
       for (let tx = x0; tx <= x1; tx++) {
         const nx = clamp(x, tx * T, (tx + 1) * T);
         const nz = clamp(z, tz * T, (tz + 1) * T);
-        if ((nx - x) ** 2 + (nz - z) ** 2 < rad * rad) fn(this.heightAtTile(tx, tz), tx, tz);
+        if ((nx - x) ** 2 + (nz - z) ** 2 < rad * rad) fn(this.heightAtTile(tx, tz, nx, nz), tx, tz);
       }
   }
 
@@ -405,7 +520,8 @@ export class Dungeon {
     const steps = Math.max(1, Math.ceil(len / (ent.radius * 0.8)));
     const sx = dx / steps;
     const sz = dz / steps;
-    const foot = canClimb ? ent.y : Math.min(ent.y, 0.01);
+    // non-climbers (monsters) step from the floor they stand on, even mid-air
+    const foot = canClimb ? ent.y : ent.groundY ?? Math.min(ent.y, 0.01);
     let hitWall = false;
     for (let i = 0; i < steps; i++) {
       if (!this.blocked(ent.x + sx, ent.z, ent.radius, foot)) ent.x += sx;
@@ -416,13 +532,16 @@ export class Dungeon {
     return hitWall;
   }
 
-  // Walls (not low blocks) stop sight lines and projectiles.
-  lineOfSight(ax, az, bx, bz, maxH = 1.5, ignoreProps = false) {
+  // Walls (not low blocks) stop sight lines: a line maxH above the ground at each end
+  // (or above the given heights ay / by), which platform edges can also cut.
+  lineOfSight(ax, az, bx, bz, maxH = 1.5, ignoreProps = false, ay, by) {
     const d = Math.hypot(bx - ax, bz - az);
     const n = Math.ceil(d / 0.5);
+    const y0 = (ay ?? this.floorAt(ax, az)) + maxH;
+    const y1 = (by ?? this.floorAt(bx, bz)) + maxH;
     for (let i = 1; i < n; i++) {
       const t = i / n;
-      if ((ignoreProps ? this.cameraHeightAt : this.heightAtPoint).call(this, ax + (bx - ax) * t, az + (bz - az) * t) > maxH) return false;
+      if ((ignoreProps ? this.cameraHeightAt : this.heightAtPoint).call(this, ax + (bx - ax) * t, az + (bz - az) * t) > y0 + (y1 - y0) * t) return false;
     }
     return true;
   }
@@ -430,8 +549,9 @@ export class Dungeon {
   // March from `from` to `to` (Vector3) and return how far (0..1) is free of geometry.
   // Height the camera must clear: furniture is only ~2.6m tall, not a full wall.
   cameraHeightAt(x, z) {
-    const t = this.get(Math.floor(x / T), Math.floor(z / T));
-    return t === TILE.PROP ? 2.6 : HEIGHT[t];
+    const tx = Math.floor(x / T);
+    const tz = Math.floor(z / T);
+    return this.get(tx, tz) === TILE.PROP ? 2.6 : this.heightAtTile(tx, tz, x, z);
   }
 
   raycastFraction(from, to) {
@@ -449,6 +569,21 @@ export class Dungeon {
 
   walkable(x, z) {
     return this.get(x, z) === TILE.FLOOR;
+  }
+
+  // Height of tile (x, z) where it meets its neighbour in direction (dx, dz).
+  edgeHeight(x, z, dx, dz) {
+    return this.heightAtTile(x, z, (x + 0.5 + dx * 0.5) * T, (z + 0.5 + dz * 0.5) * T);
+  }
+
+  // Can a walker step between neighbouring tiles a and b? Ledges can't be climbed,
+  // so stairs only connect along their run.
+  linked(ax, az, bx, bz) {
+    if (!this.walkable(bx, bz)) return false;
+    const dx = bx - ax;
+    const dz = bz - az;
+    if (dx && dz) return this.linked(ax, az, ax + dx, az) && this.linked(ax + dx, az, bx, bz) && this.linked(ax, az, ax, az + dz) && this.linked(ax, az + dz, bx, bz);
+    return Math.abs(this.edgeHeight(ax, az, dx, dz) - this.edgeHeight(bx, bz, -dx, -dz)) < 0.45;
   }
 
   bfs(sx, sz, out) {
@@ -471,8 +606,10 @@ export class Dungeon {
           if (!dx && !dz) continue;
           const nx = cx + dx;
           const nz = cz + dz;
-          if (!this.walkable(nx, nz)) continue;
-          if (dx && dz && (!this.walkable(cx + dx, cz) || !this.walkable(cx, cz + dz))) continue;
+          if (c === s && !this.walkable(cx, cz)) {
+            // starting on a crate or prop: step down anywhere
+            if (!this.walkable(nx, nz) || (dx && dz && (!this.walkable(cx + dx, cz) || !this.walkable(cx, cz + dz)))) continue;
+          } else if (!this.linked(cx, cz, nx, nz)) continue;
           const ni = nz * W + nx;
           if (dist[ni] !== -1) continue;
           dist[ni] = cd + 1;
@@ -506,8 +643,7 @@ export class Dungeon {
         if (!dx && !dz) continue;
         const nx = tx + dx;
         const nz = tz + dz;
-        if (!this.walkable(nx, nz)) continue;
-        if (dx && dz && (!this.walkable(tx + dx, tz) || !this.walkable(tx, tz + dz))) continue;
+        if (this.walkable(tx, tz) ? !this.linked(tx, tz, nx, nz) : !this.walkable(nx, nz)) continue;
         const d = this.flow[nz * W + nx];
         if (d >= 0 && d < best) {
           best = d;

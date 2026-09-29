@@ -70,6 +70,7 @@ export class Game {
     this.camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 120);
     this.cam = { yaw: 0, pitch: 0.38, dist: 6.2, pos: new THREE.Vector3(), target: new THREE.Vector3() };
     this.effects = new Effects(this.scene, this.camera, document.getElementById('numbers'));
+    this.effects.groundAt = (x, z) => (this.dungeon ? this.dungeon.floorAt(x, z) : 0);
 
     this.hemi = new THREE.HemisphereLight(0x9fb0d0, 0x302020, 1.1);
     this.scene.add(this.hemi);
@@ -389,6 +390,8 @@ export class Game {
   spawnEnemy(type, x, z, aggro = false, elite = false, opts = {}) {
     const e = new Enemy(this, type, x, z, this.floor, elite, opts);
     e.id = ++this.enemySeq;
+    e.groundY = this.dungeon.floorAt(x, z);
+    e.y += e.groundY;
     // tougher monsters for bigger parties
     if (this.net.live) {
       const k = 1 + 0.4 * (this.net.playerCount - 1);
@@ -413,6 +416,8 @@ export class Game {
     if (!ENEMY_TYPES[s.type] || this.enemies.some((e) => e.id === s.id) || this.corpses.some((e) => e.id === s.id)) return null;
     const e = new Enemy(this, s.type, s.x, s.z, this.floor, !!s.elite, { puppet: true, affixes: s.af, dormant: !!s.dormant, mimic: !!s.mimic, rise: !!s.rise });
     e.id = s.id;
+    e.groundY = this.dungeon.floorAt(s.x, s.z);
+    e.y += e.groundY;
     e.maxHp = s.hp;
     e.hp = s.cur ?? s.hp;
     e.summoned = !!s.sum;
@@ -498,10 +503,11 @@ export class Game {
     g.traverse((o) => {
       if (o.isMesh) o.castShadow = true;
     });
-    g.position.set(x, 0, z);
+    const y = this.dungeon.floorAt(x, z);
+    g.position.set(x, y, z);
     g.rotation.y = rng.next() * Math.PI * 2;
     this.scene.add(g);
-    const chest = { x, z, mesh: g, lid, open: false, rich, t: 0, idx };
+    const chest = { x, y, z, mesh: g, lid, open: false, rich, t: 0, idx };
     this.chests.push(chest);
     if (idx >= 0 && this.openedChests?.has(idx)) {
       chest.open = true;
@@ -524,10 +530,11 @@ export class Game {
     g.traverse((o) => {
       if (o.isMesh) o.castShadow = true;
     });
-    g.position.set(x, 0, z);
+    const y = this.dungeon.floorAt(x, z);
+    g.position.set(x, y, z);
     g.rotation.y = rng.next() * 6;
     this.scene.add(g);
-    this.pots.push({ x, z, mesh: g, id });
+    this.pots.push({ x, y, z, mesh: g, id });
   }
 
   // Spike trap: a whole floor tile of spikes on a cycle (warning rattle, then up).
@@ -794,18 +801,30 @@ export class Game {
       rehit: o.rehit,
       maxLife: o.life,
     };
+    // aim up or down at the monster it's heading for (platforms, stairs)
+    pr.vy = o.boomerang ? 0 : this.aimVy(pr.x, pr.y, pr.z, pr.heading, pr.speed);
     pr.mesh = this.projectileMesh(o.kind, o.kind === 'orb' ? pr.radius / 1.5 : 1);
     pr.mesh.position.set(pr.x, pr.y, pr.z);
     pr.mesh.rotation.y = pr.heading;
     this.scene.add(pr.mesh);
     this.projectiles.push(pr);
-    if (this.fxCtx === 'local' && this.net.live && this.inRun) this.net.outShoot.push({ kind: o.kind, x: pr.x, y: pr.y, z: pr.z, h: pr.heading, sp: pr.speed, life: pr.life, r: pr.radius, b: o.boomerang ? 1 : 0 });
+    if (this.fxCtx === 'local' && this.net.live && this.inRun) this.net.outShoot.push({ kind: o.kind, x: pr.x, y: pr.y, z: pr.z, h: pr.heading, sp: pr.speed, life: pr.life, r: pr.radius, b: o.boomerang ? 1 : 0, vy: pr.vy });
     return pr;
+  }
+
+  // Vertical speed that takes a shot from (x, y, z) to the chest of the monster in its
+  // path, when that monster stands higher or lower.
+  aimVy(x, y, z, heading, speed) {
+    const e = this.findTarget(x, z, heading, 30, 0.22);
+    if (!e) return 0;
+    const d = Math.max(1, Math.hypot(e.x - x, e.z - z));
+    const dy = e.y - (e.def.hover || 0) + e.height * 0.5 - y;
+    return Math.abs(dy) < 0.5 ? 0 : clamp(dy / (d / speed), -14, 14);
   }
 
   // Another player's projectile: looks the same, hits nothing here.
   shootGhost(o, owner) {
-    const pr = { owner: 'ghost', kind: o.kind, x: o.x, y: o.y, z: o.z, heading: o.h, speed: o.sp, life: o.life, maxLife: o.life, radius: o.r, boomerang: !!o.b, returnTo: owner };
+    const pr = { owner: 'ghost', kind: o.kind, x: o.x, y: o.y, z: o.z, vy: o.vy || 0, heading: o.h, speed: o.sp, life: o.life, maxLife: o.life, radius: o.r, boomerang: !!o.b, returnTo: owner };
     pr.mesh = this.projectileMesh(o.kind, o.kind === 'orb' ? pr.radius / 1.5 : 1);
     pr.mesh.position.set(pr.x, pr.y, pr.z);
     this.scene.add(pr.mesh);
@@ -817,7 +836,7 @@ export class Game {
     this.zone({ kind: o.kind, x: o.x, z: o.z, r: o.r, life: o.life, delay: o.delay || 0, follow: o.fol && owner ? owner : null, ghost: true });
   }
 
-  spawnEnemyProjectile(x, y, z, heading, speed, dmg, kind) {
+  spawnEnemyProjectile(x, y, z, heading, speed, dmg, kind, vy = 0) {
     const M = this.projMats();
     let m;
     if (kind === 'arrow') {
@@ -834,8 +853,8 @@ export class Game {
     m.position.set(x, y, z);
     m.rotation.y = heading;
     this.scene.add(m);
-    this.projectiles.push({ owner: 'enemy', kind, x, y, z, heading, speed, dmg, life: 3, mesh: m });
-    if (this.net.isHost && this.net.live) this.net.broadcast('eproj', { f: this.floor, x, y, z, h: heading, sp: speed, dmg, k: kind });
+    this.projectiles.push({ owner: 'enemy', kind, x, y, z, vy, heading, speed, dmg, life: 3, mesh: m });
+    if (this.net.isHost && this.net.live) this.net.broadcast('eproj', { f: this.floor, x, y, z, h: heading, sp: speed, dmg, k: kind, vy });
   }
 
   explodeAt(pr, x, z) {
@@ -853,7 +872,7 @@ export class Game {
   spawnFirePatch(x, z) {
     if (!this.patchMat) this.patchMat = new THREE.MeshBasicMaterial({ color: 0xff6a1a, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending });
     const m = new THREE.Mesh(G.cyl(0.9, 0.9, 0.02, 12), this.patchMat);
-    m.position.set(x, 0.06, z);
+    m.position.set(x, this.dungeon.floorAt(x, z) + 0.06, z);
     this.scene.add(m);
     this.patches.push({ x, z, t: 2.0, tick: 0, mesh: m });
   }
@@ -867,7 +886,7 @@ export class Game {
     const z = { t: 0, tickT: 0, delay: 0, arm: 0, started: false, ctx: this.fxCtx, ...o };
     if (this.fxCtx === 'local' && this.net.live && this.inRun && o.kind && !o.ghost) this.net.outZone.push({ kind: o.kind, x: o.x, z: o.z, r: o.r, life: o.life, delay: o.delay || 0, fol: o.follow === this.player ? 1 : 0 });
     const g = new THREE.Group();
-    g.position.set(z.x, 0.05, z.z);
+    g.position.set(z.x, this.dungeon.floorAt(z.x, z.z) + 0.05, z.z);
     const mats = [];
     const addDisc = (color, opacity, r = z.r) => {
       const m = new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, side: THREE.DoubleSide });
@@ -937,7 +956,7 @@ export class Game {
       if (z.follow) {
         z.x = z.follow.x;
         z.z = z.follow.z;
-        z.mesh.position.set(z.x, 0.05, z.z);
+        z.mesh.position.set(z.x, this.dungeon.floorAt(z.x, z.z) + 0.05, z.z);
       }
       let done = z.t >= z.life + z.delay;
       this.fxCtx = z.ctx;
@@ -1003,7 +1022,9 @@ export class Game {
     const p = this.player;
     const d = Math.hypot(p.x - x, p.z - z);
     const ground = this.dungeon.maxHeightUnder(p.x, p.z, p.radius);
-    if (d < r + p.radius && p.y - ground < 0.5) {
+    // it travels along the floor it started on: not up onto (or down off) a platform
+    const level = src && src.groundY !== undefined ? src.groundY : this.dungeon.floorAt(x, z);
+    if (d < r + p.radius && p.y - ground < 0.5 && Math.abs(ground - level) < 0.6) {
       if (p.takeDamage(dmg, src, true)) {
         src?.onHitPlayer?.(dmg);
         p.vy = 7;
@@ -1039,15 +1060,18 @@ export class Game {
   }
 
   hitEnemiesInRadius(x, z, r, fn) {
+    // hits land on the floor at (x, z): monsters a level above or below are out of reach
+    const floor = this.dungeon.floorAt(x, z);
     for (const e of this.enemies.slice()) {
       if (!e.alive) continue;
       if (Math.hypot(e.x - x, e.z - z) > r + e.radius) continue;
+      if (Math.abs(e.y - (e.def.hover || 0) - floor) > 1.5) continue;
       const res = fn(e);
       if (res) this.damageEnemy(e, res, x, z);
     }
     for (let i = this.pots.length - 1; i >= 0; i--) {
       const pt = this.pots[i];
-      if (Math.hypot(pt.x - x, pt.z - z) < r + 0.3) {
+      if (Math.hypot(pt.x - x, pt.z - z) < r + 0.3 && Math.abs((pt.y || 0) - floor) < 1.5) {
         if (this.net.live) this.net.send('pot', { i: pt.id });
         this.breakPot(i);
       }
@@ -1464,6 +1488,7 @@ export class Game {
         }
         pr.x += Math.sin(pr.heading) * pr.speed * dt;
         pr.z += Math.cos(pr.heading) * pr.speed * dt;
+        pr.y += pr.vy * dt;
         pr.mesh.position.set(pr.x, pr.y, pr.z);
         pr.mesh.rotation.y = pr.heading;
         if ((pr.kind === 'axe' || pr.kind === 'bigaxe') && pr.mesh.children[0]) pr.mesh.children[0].rotation.x += dt * 22;
@@ -1481,6 +1506,7 @@ export class Game {
       }
       pr.x += Math.sin(pr.heading) * pr.speed * dt;
       pr.z += Math.cos(pr.heading) * pr.speed * dt;
+      if (pr.vy) pr.y += pr.vy * dt;
       pr.mesh.position.set(pr.x, pr.y, pr.z);
       pr.mesh.rotation.y = pr.heading;
       let dead = pr.life <= 0;
@@ -1660,7 +1686,7 @@ export class Game {
         if (c.lid) c.lid.rotation.x = -c.t * 1.75;
         continue;
       }
-      if (Math.hypot(p.x - c.x, p.z - c.z) < 1.6 && p.y < 1.5) this.openChest(c);
+      if (Math.hypot(p.x - c.x, p.z - c.z) < 1.6 && p.y < (c.y || 0) + 1.5 && p.y > (c.y || 0) - 0.5) this.openChest(c);
     }
     const pt = this.portal;
     pt.ring.rotation.z += dt * (pt.active ? 2 : 0.2);

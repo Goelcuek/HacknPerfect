@@ -349,7 +349,9 @@ export class UI {
         if (!dg.seen[z * dg.w + x]) continue;
         const t = dg.get(x, z);
         if (t === TILE.WALL) continue;
-        ctx.fillStyle = t === TILE.FLOOR ? 'rgba(170,180,210,0.55)' : t === TILE.BLOCK ? 'rgba(160,120,80,0.8)' : 'rgba(90,90,110,0.9)';
+        const i = z * dg.w + x;
+        // raised floor reads lighter, stairs warm
+        ctx.fillStyle = dg.stair[i] ? 'rgba(225,200,140,0.8)' : t === TILE.FLOOR ? (dg.elev[i] > 2 ? 'rgba(215,225,250,0.8)' : dg.elev[i] > 0 ? 'rgba(195,205,235,0.68)' : 'rgba(170,180,210,0.55)') : t === TILE.BLOCK ? 'rgba(160,120,80,0.8)' : 'rgba(90,90,110,0.9)';
         ctx.fillRect((x - ptx) * s + W / 2, (z - ptz) * s + W / 2, s + 0.5, s + 0.5);
       }
     const dot = (wx, wz, color, r) => {

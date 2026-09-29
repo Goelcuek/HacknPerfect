@@ -428,8 +428,16 @@ export class Enemy {
       this.kx *= decay;
       this.kz *= decay;
     }
-    const baseY = def.hover || 0;
-    if (this.y > baseY || this.vy > 0) {
+    // stand on the floor below (platforms, stairs); fall when knocked off a ledge
+    const floor = dg.maxHeightUnder(this.x, this.z, this.radius * 0.6);
+    if (floor < 50) this.groundY = floor;
+    const baseY = (this.groundY || 0) + (def.hover || 0);
+    if (this.y < baseY) {
+      this.y = baseY;
+      if (this.vy < 0) this.vy = 0;
+    } else if (this.vy === 0 && this.y - baseY < 0.4) {
+      this.y = baseY; // down the stairs
+    } else if (this.y > baseY || this.vy > 0) {
       this.vy -= 26 * dt;
       this.y += this.vy * dt;
       if (this.y <= baseY) {
@@ -499,7 +507,7 @@ export class Enemy {
       this.arcaneT -= dt;
       if (this.arcaneT <= 0 && dist < 16) {
         this.arcaneT = 3.8;
-        for (let i = 0; i < 6; i++) game.spawnEnemyProjectile(this.x, 1.1, this.z, (i / 6) * Math.PI * 2 + this.animT, 7, this.def.dmg * this.dmgMul * 0.5, 'orb');
+        for (let i = 0; i < 6; i++) game.spawnEnemyProjectile(this.x, (this.groundY || 0) + 1.1, this.z, (i / 6) * Math.PI * 2 + this.animT, 7, this.def.dmg * this.dmgMul * 0.5, 'orb');
         game.effects.ring(this.x, this.z, 1.6, 0xb58cff, 0.35);
         sfx.fire();
       }
@@ -523,7 +531,8 @@ export class Enemy {
         if (def.boss) return this.bossChase(dt, game, dist, toPlayer, los);
         let dirx = 0;
         let dirz = 0;
-        if (los) {
+        // straight at the player on the same level; otherwise follow the path (stairs)
+        if (los && Math.abs(dy) < 0.6) {
           dirx = dx / (dist || 1);
           dirz = dz / (dist || 1);
         } else {
@@ -546,7 +555,7 @@ export class Enemy {
             }
             if (this.stateT > 0.8 * this.tempo) this.beginWindup(toPlayer);
           }
-        } else if (dist < def.range + this.radius * 0.3 && Math.abs(dy) < 2 && los) {
+        } else if (dist < def.range + this.radius * 0.3 && Math.abs(dy) < 1.3 && los) {
           this.beginWindup(toPlayer);
           break;
         }
@@ -649,10 +658,12 @@ export class Enemy {
       const tz = p.z + p.vz * t * 0.5;
       const h = Math.atan2(tx - this.x, tz - this.z);
       this.heading = h;
-      game.spawnEnemyProjectile(this.x, 1.3, this.z, h, 16, dmg, 'arrow');
+      const y = (this.groundY || 0) + 1.3;
+      const vy = this.aimVy(p, y, 16);
+      game.spawnEnemyProjectile(this.x, y, this.z, h, 16, dmg, 'arrow', vy);
       if (this.elite) {
-        game.spawnEnemyProjectile(this.x, 1.3, this.z, h + 0.2, 16, dmg, 'arrow');
-        game.spawnEnemyProjectile(this.x, 1.3, this.z, h - 0.2, 16, dmg, 'arrow');
+        game.spawnEnemyProjectile(this.x, y, this.z, h + 0.2, 16, dmg, 'arrow', vy);
+        game.spawnEnemyProjectile(this.x, y, this.z, h - 0.2, 16, dmg, 'arrow', vy);
       }
       sfx.arrow();
     } else if (this.type === 'mage') {
@@ -660,7 +671,9 @@ export class Enemy {
         game.raiseDead(this, 2);
       } else {
         const h = Math.atan2(p.x - this.x, p.z - this.z);
-        for (const off of this.elite ? [-0.3, -0.1, 0.1, 0.3] : [-0.18, 0, 0.18]) game.spawnEnemyProjectile(this.x, 1.4, this.z, h + off, 9, dmg * 0.8, 'orb');
+        const y = (this.groundY || 0) + 1.4;
+        const vy = this.aimVy(p, y, 9);
+        for (const off of this.elite ? [-0.3, -0.1, 0.1, 0.3] : [-0.18, 0, 0.18]) game.spawnEnemyProjectile(this.x, y, this.z, h + off, 9, dmg * 0.8, 'orb', vy);
         sfx.fire();
       }
     } else if (this.type === 'brute') {
@@ -668,6 +681,14 @@ export class Enemy {
       game.shockwave(s.x, s.z, s.r, dmg, this);
     }
     this.playAttack();
+  }
+
+  // Vertical speed for a shot from height y to reach the target's chest (0 on the same level).
+  aimVy(p, y, speed) {
+    const dy = (p.y || 0) + 1.0 - y;
+    if (Math.abs(dy) < 0.6) return 0;
+    const d = Math.max(1, Math.hypot(p.x - this.x, p.z - this.z));
+    return Math.max(-14, Math.min(14, dy / (d / speed)));
   }
 
   checkLungeHit(game) {
@@ -741,7 +762,7 @@ export class Enemy {
           game.shockwave(this.x, this.z, 9, dmg, this, true);
         } else if (m === 'volley') {
           const n = this.hp < this.maxHp * 0.5 ? 11 : 7;
-          for (let i = 0; i < n; i++) game.spawnEnemyProjectile(this.x, 1.6, this.z, this.heading + (i - (n - 1) / 2) * 0.17, 11, dmg * 0.7, 'orb');
+          for (let i = 0; i < n; i++) game.spawnEnemyProjectile(this.x, (this.groundY || 0) + 1.6, this.z, this.heading + (i - (n - 1) / 2) * 0.17, 11, dmg * 0.7, 'orb');
           sfx.fire();
         } else if (m === 'charge') {
           this.chargeT = 0.75;

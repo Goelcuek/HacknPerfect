@@ -33,9 +33,18 @@ export class Effects {
     this.transients = []; // meshes with update(dt) -> alive
     this.numbers = [];
     this._v = new THREE.Vector3();
+    this.groundAt = () => 0; // floor height at (x, z), set by the game
+  }
+
+  // Heights under 0.35 mean "just above the ground": lift them onto the floor at (x, z)
+  // (raised platforms, stairs). Real positions up there are always higher than that.
+  gy(x, y, z) {
+    return y < 0.35 ? this.groundAt(x, z) + y : y;
   }
 
   burst(x, y, z, color, n = 10, speed = 5, size = 0.15, life = 0.5, gravity = 12) {
+    y = this.gy(x, y, z);
+    const floor = this.groundAt(x, z);
     for (let i = 0; i < n; i++) {
       if (this.particles.length >= MAX_PARTICLES) this.particles.shift();
       const a = Math.random() * Math.PI * 2;
@@ -55,6 +64,7 @@ export class Effects {
         color,
         g: gravity,
         rot: Math.random() * 6,
+        floor,
       });
     }
   }
@@ -62,7 +72,7 @@ export class Effects {
   // Trail puff that doesn't move much (dash trails, fire trails).
   puff(x, y, z, color, size = 0.3, life = 0.4) {
     if (this.particles.length >= MAX_PARTICLES) this.particles.shift();
-    this.particles.push({ x, y, z, vx: 0, vy: 0.8, vz: 0, life, max: life, size, color, g: 0, rot: Math.random() * 6 });
+    this.particles.push({ x, y: this.gy(x, y, z), z, vx: 0, vy: 0.8, vz: 0, life, max: life, size, color, g: 0, rot: Math.random() * 6, floor: -99 });
   }
 
   ring(x, z, radius, color, duration = 0.35, y = 0.08, thickness = 0.25) {
@@ -70,7 +80,7 @@ export class Effects {
     const mat = new THREE.MeshBasicMaterial({ color, transparent: true, side: THREE.DoubleSide, depthWrite: false });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.rotation.x = -Math.PI / 2;
-    mesh.position.set(x, y, z);
+    mesh.position.set(x, this.gy(x, y, z), z);
     this.scene.add(mesh);
     let t = 0;
     this.transients.push({
@@ -93,7 +103,7 @@ export class Effects {
     const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.25, depthWrite: false });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.rotation.x = -Math.PI / 2;
-    mesh.position.set(x, 0.05, z);
+    mesh.position.set(x, this.groundAt(x, z) + 0.05, z);
     this.scene.add(mesh);
     let t = 0;
     const handle = { dead: false };
@@ -156,7 +166,7 @@ export class Effects {
       c.userData.h = 0.6 + Math.random() * 0.7;
       g.add(c);
     }
-    g.position.set(x, 0, z);
+    g.position.set(x, this.groundAt(x, z), z);
     this.scene.add(g);
     let t = 0;
     this.transients.push({
@@ -178,7 +188,8 @@ export class Effects {
   fallingArrow(x, z) {
     if (!this.arrowMat) this.arrowMat = new THREE.MeshBasicMaterial({ color: 0xfff1c9 });
     const m = new THREE.Mesh(G.box(0.05, 0.9, 0.05), this.arrowMat);
-    const y0 = 7 + Math.random() * 2;
+    const ground = this.groundAt(x, z);
+    const y0 = ground + 7 + Math.random() * 2;
     m.position.set(x, y0, z);
     this.scene.add(m);
     let t = 0;
@@ -187,8 +198,8 @@ export class Effects {
       dispose: () => {},
       update: (dt) => {
         t += dt;
-        m.position.y = y0 - (y0 / 0.22) * t;
-        if (m.position.y <= 0.3) {
+        m.position.y = y0 - ((y0 - ground) / 0.22) * t;
+        if (m.position.y <= ground + 0.3) {
           this.puff(x, 0.2, z, 0xb0a080, 0.2, 0.3);
           return false;
         }
@@ -210,7 +221,7 @@ export class Effects {
       c.userData.h = 1.5 + Math.random() * 1.5;
       g.add(c);
     }
-    g.position.set(x, 0, z);
+    g.position.set(x, this.groundAt(x, z), z);
     this.scene.add(g);
     let t = 0;
     this.transients.push({
@@ -233,13 +244,14 @@ export class Effects {
     let t = 0;
     const sx = x - 6;
     const sz = z - 3;
+    const ground = this.groundAt(x, z);
     this.transients.push({
       mesh: rock,
       dispose: () => m.dispose(),
       update: (dt) => {
         t += dt;
         const k = Math.min(1, t / dur);
-        rock.position.set(sx + (x - sx) * k, 16 * (1 - k) + 0.3, sz + (z - sz) * k);
+        rock.position.set(sx + (x - sx) * k, 16 * (1 - k) + 0.3 + ground, sz + (z - sz) * k);
         rock.rotation.x += dt * 6;
         rock.rotation.z += dt * 4;
         this.puff(rock.position.x, rock.position.y, rock.position.z, Math.random() < 0.5 ? 0xff7a2e : 0xffc04a, 0.6, 0.35);
@@ -252,11 +264,12 @@ export class Effects {
     if (this.particles.length >= MAX_PARTICLES) this.particles.shift();
     const life = 1.2 + Math.random() * 0.8;
     const v = 0x70 + Math.floor(Math.random() * 0x30);
-    this.particles.push({ x, y: 0.4 + Math.random() * 1.2, z, vx: (Math.random() - 0.5) * 1.5, vy: 0.4, vz: (Math.random() - 0.5) * 1.5, life, max: life, size: 0.9 + Math.random() * 0.7, color: (v << 16) | (v << 8) | (v + 10), g: 0, rot: Math.random() * 6, grow: true });
+    this.particles.push({ x, y: this.groundAt(x, z) + 0.4 + Math.random() * 1.2, z, vx: (Math.random() - 0.5) * 1.5, vy: 0.4, vz: (Math.random() - 0.5) * 1.5, life, max: life, size: 0.9 + Math.random() * 0.7, color: (v << 16) | (v << 8) | (v + 10), g: 0, rot: Math.random() * 6, grow: true });
   }
 
   // Jagged bolt through a list of [x,y,z] points.
   lightning(pts, color = 0xaad4ff) {
+    pts = pts.map(([x, y, z]) => [x, this.gy(x, y, z), z]);
     const g = new THREE.Group();
     const m = new THREE.MeshBasicMaterial({ color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
     const a = new THREE.Vector3();
@@ -329,8 +342,9 @@ export class Effects {
       p.x += p.vx * dt;
       p.y += p.vy * dt;
       p.z += p.vz * dt;
-      if (p.y < 0.05) {
-        p.y = 0.05;
+      const fl = (p.floor ?? 0) + 0.05;
+      if (p.y < fl) {
+        p.y = fl;
         p.vy *= -0.3;
         p.vx *= 0.7;
         p.vz *= 0.7;
