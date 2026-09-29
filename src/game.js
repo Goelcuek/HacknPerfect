@@ -780,7 +780,7 @@ export class Game {
     pr.mesh.rotation.y = pr.heading;
     this.scene.add(pr.mesh);
     this.projectiles.push(pr);
-    if (this.fxCtx === 'local' && this.net.live) this.net.outShoot.push({ kind: o.kind, x: pr.x, y: pr.y, z: pr.z, h: pr.heading, sp: pr.speed, life: pr.life, r: pr.radius, b: o.boomerang ? 1 : 0 });
+    if (this.fxCtx === 'local' && this.net.live && this.inRun) this.net.outShoot.push({ kind: o.kind, x: pr.x, y: pr.y, z: pr.z, h: pr.heading, sp: pr.speed, life: pr.life, r: pr.radius, b: o.boomerang ? 1 : 0 });
     return pr;
   }
 
@@ -846,7 +846,7 @@ export class Game {
 
   zone(o) {
     const z = { t: 0, tickT: 0, delay: 0, arm: 0, started: false, ctx: this.fxCtx, ...o };
-    if (this.fxCtx === 'local' && this.net.live && o.kind && !o.ghost) this.net.outZone.push({ kind: o.kind, x: o.x, z: o.z, r: o.r, life: o.life, delay: o.delay || 0, fol: o.follow === this.player ? 1 : 0 });
+    if (this.fxCtx === 'local' && this.net.live && this.inRun && o.kind && !o.ghost) this.net.outZone.push({ kind: o.kind, x: o.x, z: o.z, r: o.r, life: o.life, delay: o.delay || 0, fol: o.follow === this.player ? 1 : 0 });
     const g = new THREE.Group();
     g.position.set(z.x, 0.05, z.z);
     const mats = [];

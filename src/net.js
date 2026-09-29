@@ -11,6 +11,7 @@ const PREFIX = 'hacknperfect-';
 export const MAX_PLAYERS = 4;
 const SEND_HZ = 15;
 const SNAP_HZ = 12;
+const MAX_MSG = 15000; // bytes of JSON; PeerJS refuses anything over ~16 KB
 // Effects mirrored to other players (all take plain arguments).
 const FX = ['burst', 'ring', 'telegraph', 'slash', 'spikes', 'fallingArrow', 'iceShards', 'meteor', 'smoke', 'lightning'];
 const STATES = ['idle', 'chase', 'windup', 'attack', 'recover', 'bosswind', 'bossact'];
@@ -130,8 +131,10 @@ export class Net {
           resolve();
         });
         conn.on('data', (m) => this.onClientMsg(m));
-        conn.on('close', () => this.onHostLost());
-        conn.on('error', () => this.onHostLost());
+        conn.on('close', () => this.onHostLost('the connection closed'));
+        // errors on an open connection (e.g. an oversized message) are not fatal:
+        // only a real close ends the session
+        conn.on('error', (err) => console.warn('[net] connection error', err?.type || err));
       });
       peer.on('error', (err) => {
         if (err.type === 'peer-unavailable') reject(new Error('No game found with that PIN'));
@@ -161,16 +164,36 @@ export class Net {
   }
 
   // ------------------------------------------------------------- messaging
+  // PeerJS silently refuses (and raises an error for) JSON messages over ~16 KB,
+  // so anything big is split: messages carrying a list go out in halves.
+  sendRaw(conn, msg) {
+    let len = 0;
+    try {
+      len = JSON.stringify(msg).length;
+    } catch (_) {
+      return;
+    }
+    if (len < MAX_MSG) conn.send(msg);
+    else if (Array.isArray(msg.list) && msg.list.length > 1) {
+      const h = msg.list.length >> 1;
+      this.sendRaw(conn, { ...msg, list: msg.list.slice(0, h) });
+      this.sendRaw(conn, { ...msg, list: msg.list.slice(h) });
+    } else if (Array.isArray(msg.a) && msg.a.length) {
+      // a state packet with an oversized animation log: the latest calls matter most
+      this.sendRaw(conn, { ...msg, a: msg.a.slice(-Math.max(1, msg.a.length >> 1)) });
+    } else console.warn('[net] dropped oversized message', msg.t, len);
+  }
+
   send(t, o = {}) {
-    if (this.isClient && this.hostConn?.open) this.hostConn.send({ t, ...o });
+    if (this.isClient && this.hostConn?.open) this.sendRaw(this.hostConn, { t, ...o });
     else if (this.isHost) this.broadcast(t, o);
   }
   sendTo(id, t, o = {}) {
     const c = this.conns.get(id);
-    if (c?.open) c.send({ t, ...o });
+    if (c?.open) this.sendRaw(c, { t, ...o });
   }
   broadcast(t, o = {}, except = -1) {
-    for (const [id, c] of this.conns) if (id !== except && c.open && this.hellos.has(id)) c.send({ t, ...o });
+    for (const [id, c] of this.conns) if (id !== except && c.open && this.hellos.has(id)) this.sendRaw(c, { t, ...o });
   }
 
   // --------------------------------------------------------------- host side
@@ -186,12 +209,18 @@ export class Net {
     this.conns.set(id, conn);
     conn.on('data', (m) => this.onHostMsg(id, m));
     conn.on('close', () => this.dropPlayer(id));
-    conn.on('error', () => this.dropPlayer(id));
+    conn.on('error', (err) => console.warn('[net] connection error', id, err?.type || err));
   }
 
   dropPlayer(id) {
     if (!this.conns.has(id)) return;
+    const conn = this.conns.get(id);
     this.conns.delete(id);
+    try {
+      if (conn.open) conn.close();
+    } catch (_) {
+      /* already gone */
+    }
     const had = this.hellos.delete(id);
     const r = this.remotes.get(id);
     if (r) {
@@ -223,7 +252,16 @@ export class Net {
   }
 
   // The host started a (new) run: bring everyone who said hello into it.
+  clearOutbox() {
+    this.outAnim = [];
+    this.outFx = [];
+    this.outShoot = [];
+    this.outZone = [];
+    this.eAnim = [];
+  }
+
   onRunStarted() {
+    this.clearOutbox();
     if (!this.isHost) return;
     for (const r of this.remotes.values()) r.dispose();
     this.remotes.clear();
@@ -345,8 +383,9 @@ export class Net {
     this.send('hello', { cls, look: p ? lookOf(p) : {} });
   }
 
-  onHostLost() {
+  onHostLost(reason = '') {
     if (!this.isClient) return;
+    console.warn('[net] lost the host:', reason);
     const g = this.game;
     this.hostConn = null;
     this.leave();
@@ -355,7 +394,7 @@ export class Net {
       g.state = 'dead';
       g.showDeath();
     }
-    this.status('Disconnected from the host');
+    this.status(reason ? `Disconnected from the host (${reason})` : 'Disconnected from the host');
   }
 
   onClientMsg(m) {
@@ -371,6 +410,7 @@ export class Net {
         return;
       case 'welcome': {
         this.myId = m.id;
+        this.clearOutbox();
         for (const r of this.remotes.values()) r.dispose();
         this.remotes.clear();
         g.startClientRun(m);
@@ -559,7 +599,7 @@ export class Net {
       const orig = fx[m].bind(fx);
       fx[m] = (...args) => {
         const res = orig(...args);
-        if (this.live && (g.fxCtx === 'local' || (this.isHost && g.fxCtx === 'enemy')) && this.outFx.length < 200) this.outFx.push([m, args]);
+        if (this.live && g.inRun && (g.fxCtx === 'local' || (this.isHost && g.fxCtx === 'enemy')) && this.outFx.length < 200) this.outFx.push([m, args]);
         return res;
       };
     }
@@ -590,13 +630,20 @@ export class Net {
     const stop = an.stop.bind(an);
     an.play = (name, o = {}) => {
       const res = play(name, o);
-      if (this.live) this.outAnim.push(['p', name, cleanOpts(o)]);
+      if (this.live && this.game.inRun) this.queueAnim(['p', name, cleanOpts(o)]);
       return res;
     };
     an.stop = (name = null, fade = 0.15) => {
       stop(name, fade);
-      if (this.live) this.outAnim.push(['s', name, fade]);
+      if (this.live && this.game.inRun) this.queueAnim(['s', name, fade]);
     };
+  }
+
+  // Only calls made in the dungeon count (the hero-select backdrop animates too),
+  // and the queue is bounded in case the sender stalls.
+  queueAnim(ev) {
+    this.outAnim.push(ev);
+    if (this.outAnim.length > 60) this.outAnim.splice(0, this.outAnim.length - 60);
   }
 
   onLocalLook(p) {
@@ -659,7 +706,7 @@ export class Net {
             const f = (e.aggro ? 1 : 0) | (e.dormant ? 2 : 0) | (e.disguised ? 4 : 0) | (e.rising > 0 ? 8 : 0) | (e.freeze > 0 ? 16 : 0) | (e.burn > 0 ? 32 : 0) | (e.poison > 0 || e.bleed > 0 ? 64 : 0) | (e.stun > 0 || e.blind > 0 ? 128 : 0) | (e.shieldHp > 0 ? 256 : 0);
             list.push([e.id, Math.round(e.x * 100), Math.round(e.z * 100), Math.round(e.y * 100), Math.round(e.heading * 100), Math.round(e.hp), f, Math.max(0, STATES.indexOf(e.state))]);
           }
-          c.send({ t: 'es', f: g.floor, list });
+          this.sendRaw(c, { t: 'es', f: g.floor, list });
         }
       }
       // everyone down: the run is over
