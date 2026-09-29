@@ -304,7 +304,7 @@ export class Game {
     this.floorSeed = seed ?? (Math.random() * 2 ** 31) | 0;
     this.nextSeed = null;
     this.enterSent = false;
-    const dg = new Dungeon(n, this.floorSeed);
+    const dg = new Dungeon(n, this.floorSeed, this.net.isHost ? this.net.partySize : 1);
     this.dungeon = dg;
     const levelGroup = dg.buildMeshes(this.quality);
     levelGroup.userData.isLevel = true;
@@ -372,7 +372,7 @@ export class Game {
     e.id = ++this.enemySeq;
     // tougher monsters for bigger parties
     if (this.net.live) {
-      const k = 1 + 0.55 * (this.net.playerCount - 1);
+      const k = 1 + 0.4 * (this.net.playerCount - 1);
       e.maxHp *= k;
       e.hp *= k;
     }
@@ -1165,9 +1165,11 @@ export class Game {
       for (let i = 0; i < 2; i++) this.dropItem(e.x, e.z, generateItem(this.floor, cls, 5, 2));
       this.dropPotion(e.x, e.z);
     } else if (!e.summoned) {
-      const itemChance = e.elite ? 0.7 : e.def.heavy ? 0.22 : 0.09;
+      // parties find more (loot is per player, and there's more competition for it)
+      const bonus = 1 + 0.35 * (this.net.live ? this.net.playerCount - 1 : 0);
+      const itemChance = (e.elite ? 0.7 : e.def.heavy ? 0.22 : 0.09) * bonus;
       if (rng.next() < itemChance) this.dropItem(e.x, e.z, generateItem(this.floor, cls, e.elite ? 3 : 0, e.elite ? 1 : 0));
-      if (rng.next() < 0.07) this.dropPotion(e.x, e.z);
+      if (rng.next() < 0.07 * bonus) this.dropPotion(e.x, e.z);
     }
   }
 
@@ -1209,7 +1211,7 @@ export class Game {
     sfx.pickup();
     this.effects.burst(c.x, 0.8, c.z, 0xffd34d, 20, 6, 0.15, 0.7);
     this.dropGold(c.x, c.z, Math.round((12 + this.floor * 6) * this.player.final.goldMult * (c.rich ? 3 : 1)));
-    const n = c.rich ? 2 : 1;
+    const n = (c.rich ? 2 : 1) + (this.net.live && this.net.playerCount > 1 ? 1 : 0);
     for (let i = 0; i < n; i++) this.dropItem(c.x, c.z, generateItem(this.floor, this.player.clsId, c.rich ? 5 : 2, 1));
     if (rng.next() < 0.4) this.dropPotion(c.x, c.z);
   }

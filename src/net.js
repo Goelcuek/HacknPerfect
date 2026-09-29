@@ -6,6 +6,7 @@
 
 import { RemotePlayer } from './remote.js';
 import { Enemy, ENEMY_TYPES } from './enemies.js';
+import { partyColor } from './utils.js';
 
 const PREFIX = 'hacknperfect-';
 export const MAX_PLAYERS = 4;
@@ -79,6 +80,10 @@ export class Net {
   }
   get playerCount() {
     return 1 + this.remotes.size;
+  }
+  // Players in the party, counting those still in the lobby when a run starts.
+  get partySize() {
+    return this.isHost ? 1 + Math.max(this.remotes.size, this.hellos.size) : this.playerCount;
   }
 
   status(msg) {
@@ -653,8 +658,8 @@ export class Net {
   refreshParty() {
     const g = this.game;
     if (!this.mode || !g.player) return g.ui.setParty?.(null);
-    const list = [{ name: this.myName() + ' (you)', cls: g.player.clsId, hp: g.player.hp / g.player.final.maxHp, dead: g.player.dead }];
-    for (const r of this.remotes.values()) list.push({ name: r.name, cls: r.clsId, hp: r.hpFrac, dead: r.dead, away: r.floor !== g.floor || r.inMenu });
+    const list = [{ color: '#7fe0ff', name: this.myName() + ' (you)', cls: g.player.clsId, hp: g.player.hp / g.player.final.maxHp, dead: g.player.dead }];
+    for (const r of this.remotes.values()) list.push({ color: partyColor(r.id), name: r.name, cls: r.clsId, hp: r.hpFrac, dead: r.dead, away: r.floor !== g.floor || r.inMenu });
     g.ui.setParty?.({ pin: this.pin, host: this.isHost, list });
   }
 

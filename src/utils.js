@@ -1,6 +1,9 @@
 // Small math / RNG helpers shared across modules.
 
 export const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+// Each party member's colour on the minimap, party list and name tag (you are cyan).
+const PARTY_COLORS = ['#ffb347', '#7dff8a', '#ff7ad9', '#fff27a'];
+export const partyColor = (id) => PARTY_COLORS[((id % 4) + 4) % 4];
 export const lerp = (a, b, t) => a + (b - a) * t;
 export const dist2 = (ax, az, bx, bz) => (ax - bx) ** 2 + (az - bz) ** 2;
 

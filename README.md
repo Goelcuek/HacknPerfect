@@ -40,7 +40,10 @@ effects and animations are mirrored on everyone's screen.
 Co-op rules:
 
 - **Loot is per player:** every kill, chest and barrel drops loot for each player separately.
-- **Tougher monsters:** +55% health per extra player.
+- **More monsters, more loot:** +40% monsters per extra player (each with +40% health per extra
+  player), a higher item and potion drop chance per extra player, and one extra item per chest.
+- **See each other:** party members show on the minimap as coloured arrows (pinned to the edge
+  when out of range), matching the colours in the party list and on their name tags.
 - **Revive:** a downed player gets back up after a teammate stands next to them for 2.5 seconds.
   The run ends only when everyone is down.
 - **Portal:** anyone stepping into the open portal takes the whole party to the next floor
@@ -71,6 +74,14 @@ To build locally (needs JDK 17 and the Android SDK):
 android/sync-web.sh                         # copy the game into the APK assets
 cd android && ./gradlew assembleRelease     # → app/build/outputs/apk/release/app-release.apk
 ```
+
+## iPhone / iPad
+
+Apple only allows native apps from the App Store (or signed with a developer account), so the
+simplest way on iOS is the web version installed as an app: open the GitHub Pages link in
+**Safari**, tap **Share → Add to Home Screen**. It gets the game's icon and runs full screen
+without Safari's bars, and multiplayer and run saving work the same. iOS doesn't let web apps lock
+the orientation, so turn off the portrait lock and hold the phone sideways.
 
 ## Classes
 
@@ -135,7 +146,7 @@ chains dashes between targets.
 ## Gameplay
 
 - **Clear the floor.** The portal opens once every awake monster on the floor is dead. The minimap
-  marks enemies (red), elites (gold), chests and loot.
+  marks enemies (red), elites (gold), chests and loot; up on the map is the way the camera faces.
 - **Loot shows on your hero.** Weapons, armor and charms drop in five rarities with random affixes.
   Better weapons swap to bigger models (a two-handed greatsword for knights) and glow with their
   rarity; armor swaps the knight's shield, adds helmets, hats, spellbooks and capes dyed in the

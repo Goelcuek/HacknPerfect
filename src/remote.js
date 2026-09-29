@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { buildHero, dressHero } from './hero.js';
 import { CLASSES } from './classes.js';
-import { clamp } from './utils.js';
+import { clamp, partyColor } from './utils.js';
 
 const DELAY = 0.1; // seconds of interpolation delay
 const TAU = Math.PI * 2;
@@ -62,7 +62,7 @@ export class RemotePlayer {
     this.model = buildHero(this.clsId);
     this.mesh = this.model.group;
     this.setLook(info.look || {});
-    this.tag = label(`${this.name} · ${CLASSES[this.clsId].name}`);
+    this.tag = label(`${this.name} · ${CLASSES[this.clsId].name}`, partyColor(id));
     this.tag.position.y = 2.55;
     this.mesh.add(this.tag);
     this.shadow = new THREE.Mesh(new THREE.CircleGeometry(0.5, 20), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.4, depthWrite: false }));

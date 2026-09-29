@@ -23,12 +23,16 @@ export function enemyPoolForFloor(floor) {
 }
 
 export class Dungeon {
-  constructor(floor, seed) {
+  // party: players in a multiplayer run; only the host passes it (it alone spawns
+  // monsters), and the extra monsters come from their own random stream so the
+  // layout, chests and barrels stay identical on every player's machine.
+  constructor(floor, seed, party = 1) {
     this.floor = floor;
     this.rng = makeRng(seed);
     this.isBoss = floor % 5 === 0;
     this.theme = themeForFloor(floor);
     this.generate();
+    if (party > 1) this.addPartySpawns(party, seed);
   }
 
   // ---------------------------------------------------------------- generation
@@ -259,13 +263,43 @@ export class Dungeon {
     }
   }
 
-  randomFloorIn(room, margin = 1) {
+  randomFloorIn(room, margin = 1, r = this.rng) {
     for (let i = 0; i < 40; i++) {
-      const x = this.rng.int(room.x + margin, room.x + room.w - 1 - margin);
-      const z = this.rng.int(room.z + margin, room.z + room.h - 1 - margin);
+      const x = r.int(room.x + margin, room.x + room.w - 1 - margin);
+      const z = r.int(room.z + margin, room.z + room.h - 1 - margin);
       if (this.get(x, z) === TILE.FLOOR) return { x: (x + 0.5) * T, z: (z + 0.5) * T };
     }
     return { x: (room.cx + 0.5) * T, z: (room.cz + 0.5) * T };
+  }
+
+  rollSpawn(r, room, pool) {
+    const f = this.floor;
+    let total = 0;
+    for (const p of pool) total += p.w;
+    let roll = r.next() * total;
+    let type = pool[0].type;
+    for (const p of pool) {
+      roll -= p.w;
+      if (roll <= 0) {
+        type = p.type;
+        break;
+      }
+    }
+    const pos = this.randomFloorIn(room, 1, r);
+    // some skeletons lie in wait as bone piles and rise when the hero comes close
+    const dormant = (type === 'grunt' || type === 'brute') && r.chance(0.3);
+    return { type, ...pos, elite: f >= 2 && r.chance(0.06 + f * 0.01), dormant };
+  }
+
+  // Bigger parties get more monsters: +40% per extra player.
+  addPartySpawns(party, seed) {
+    const r = makeRng((seed ^ 0x5bd1e995) >>> 0);
+    const pool = enemyPoolForFloor(this.floor);
+    for (const room of this.rooms) {
+      if (!room.spawnCount) continue;
+      const extra = Math.round(room.spawnCount * 0.4 * (party - 1));
+      for (let i = 0; i < extra; i++) this.spawns.push(this.rollSpawn(r, room, pool));
+    }
   }
 
   placeContent() {
@@ -279,25 +313,10 @@ export class Dungeon {
         continue;
       }
       const area = room.w * room.h;
-      let n = Math.round(area / 30) + Math.floor(f / 3) + r.int(0, 1);
-      n = clamp(n, 2, 8);
-      for (let i = 0; i < n; i++) {
-        let total = 0;
-        for (const p of pool) total += p.w;
-        let roll = r.next() * total;
-        let type = pool[0].type;
-        for (const p of pool) {
-          roll -= p.w;
-          if (roll <= 0) {
-            type = p.type;
-            break;
-          }
-        }
-        const pos = this.randomFloorIn(room);
-        // some skeletons lie in wait as bone piles and rise when the hero comes close
-        const dormant = (type === 'grunt' || type === 'brute') && r.chance(0.3);
-        this.spawns.push({ type, ...pos, elite: f >= 2 && r.chance(0.06 + f * 0.01), dormant });
-      }
+      let n = Math.round(area / 20) + Math.floor(f / 3) + r.int(0, 2);
+      n = clamp(n, 3, 10);
+      room.spawnCount = n;
+      for (let i = 0; i < n; i++) this.spawns.push(this.rollSpawn(r, room, pool));
       const pots = r.int(0, 3);
       for (let i = 0; i < pots; i++) this.pots.push(this.randomFloorIn(room));
     }

@@ -5,6 +5,7 @@ import { CLASSES, CLASS_ORDER } from './classes.js';
 import { formatStats, SLOTS, SLOT_ICON } from './items.js';
 import { TILE } from './dungeon.js';
 import { sfx, setMuted, isMuted } from './audio.js';
+import { partyColor } from './utils.js';
 
 const $ = (id) => document.getElementById(id);
 const PC_KEYS = ['Q', 'E', 'R', 'C'];
@@ -30,14 +31,27 @@ export class UI {
       bar.appendChild(el);
       return { el, ico: el.querySelector('.ico'), cd: el.querySelector('.cd'), num: el.querySelector('.cdnum'), pips: el.querySelector('.pips') };
     });
+    // movement next to the skills: dash (with its charges) and jump (with air jumps)
+    const sep = document.createElement('div');
+    sep.className = 'barsep';
+    bar.appendChild(sep);
+    const move = (cls, glyph, key) => {
+      const el = document.createElement('div');
+      el.className = `skillslot move ${cls}`;
+      el.innerHTML = `<span class="ico">${glyph}</span><div class="charges"></div><kbd>${key}</kbd>`;
+      bar.appendChild(el);
+      return el.querySelector('.charges');
+    };
+    this.pcDashCharges = move('dash', '»', 'Shift');
+    this.pcJumpCharges = move('jump', '▲', 'Space');
     this.touchSkills = [...document.querySelectorAll('.tskill')].map((el) => {
-      el.innerHTML = `<span class="ico"></span><div class="cd"></div>`;
+      el.innerHTML = `<div class="cd"></div><span class="ico"></span><div class="cdnum"></div>`;
       el.classList.add('empty');
-      return { el, ico: el.querySelector('.ico'), cd: el.querySelector('.cd') };
+      return { el, ico: el.querySelector('.ico'), cd: el.querySelector('.cd'), num: el.querySelector('.cdnum') };
     });
     this.joyBase = $('joyBase');
     this.joyKnob = $('joyKnob');
-    this.dashPips = $('dashPips');
+    this.touchDashCharges = document.querySelector('#dashBtn .charges');
   }
 
   setTouch(on) {
@@ -262,9 +276,13 @@ export class UI {
       bEl.innerHTML = buffs.map(([id, b]) => `<span class="buff" style="--c:#${b.color.toString(16).padStart(6, '0')}">${{ warcry: '📯', focus: '🦅', berserk: '😡' }[id] || '💨'} ${Math.ceil(b.t)}s</span>`).join('');
     }
 
-    const max = p.mods.dashCharges;
-    if (this.dashPips.childElementCount !== max) this.dashPips.innerHTML = '<i></i>'.repeat(max);
-    [...this.dashPips.children].forEach((el, i) => el.classList.toggle('empty', i >= p.dashCharges));
+    const pips = (el, max, have) => {
+      if (el.childElementCount !== max) el.innerHTML = '<i></i>'.repeat(max);
+      for (let i = 0; i < max; i++) el.children[i].classList.toggle('empty', i >= have);
+    };
+    const dashEl = input.isTouch ? this.touchDashCharges : this.pcDashCharges;
+    pips(dashEl, p.mods.dashCharges, p.dashCharges);
+    if (!input.isTouch) pips(this.pcJumpCharges, 1 + p.mods.airJumps, p.grounded ? 1 + p.mods.airJumps : p.airJumpsLeft);
 
     for (let i = 0; i < 4; i++) {
       const k = p.skills[i] ? p.cooldowns[i] / p.skillCooldown(i) : 0;
@@ -272,7 +290,9 @@ export class UI {
       pc.cd.style.height = `${k * 100}%`;
       pc.num.textContent = p.cooldowns[i] > 0 ? Math.ceil(p.cooldowns[i]) : '';
       const ts = this.touchSkills[i];
-      ts.cd.style.height = `${k * 100}%`;
+      // radial sweep on the round touch buttons
+      ts.cd.style.background = k > 0 ? `conic-gradient(rgba(0,0,0,0.72) ${Math.round(k * 360)}deg, rgba(0,0,0,0) 0)` : 'none';
+      ts.num.textContent = p.cooldowns[i] > 0.05 ? Math.ceil(p.cooldowns[i]) : '';
       ts.el.classList.toggle('ready', !!p.skills[i] && k <= 0);
       ts.el.classList.toggle('sel', input.attackSwipeDir === i);
     }
@@ -320,8 +340,8 @@ export class UI {
     const z0 = Math.floor(ptz - view / 2);
     ctx.save();
     ctx.translate(W / 2, W / 2);
+    // camera forward is up, camera right is right
     ctx.rotate(Math.PI + game.cam.yaw);
-    ctx.scale(-1, 1);
     ctx.translate(-W / 2, -W / 2);
     for (let z = z0 - 8; z < z0 + view + 8; z++)
       for (let x = x0 - 8; x < x0 + view + 8; x++) {
@@ -347,15 +367,42 @@ export class UI {
     const pt = game.portal;
     if (seenAt(pt.x, pt.z) || game.floorCleared) dot(pt.x, pt.z, pt.active ? '#b18cff' : '#666', 5);
     ctx.restore();
+    // party members on this floor (pinned to the edge when out of range)
+    const yaw = game.cam.yaw;
+    const fx = Math.sin(yaw);
+    const fz = Math.cos(yaw);
+    const half = W / 2 - 8;
+    for (const r of game.net?.remotes?.values() || []) {
+      if (r.floor !== game.floor || r.inMenu) continue;
+      const dx = ((r.x - p.x) / 2) * s;
+      const dz = ((r.z - p.z) / 2) * s;
+      let sx = -dx * fz + dz * fx;
+      let sy = -(dx * fx + dz * fz);
+      const m = Math.max(Math.abs(sx), Math.abs(sy));
+      if (m > half) {
+        sx *= half / m;
+        sy *= half / m;
+      }
+      this.mmArrow(W / 2 + sx, W / 2 + sy, yaw - r.heading, r.dead ? '#777' : partyColor(r.id), 6);
+    }
+    this.mmArrow(W / 2, W / 2, yaw - p.heading, '#7fe0ff', 7);
+  }
+
+  mmArrow(x, y, rot, color, size) {
+    const ctx = this.mmCtx;
     ctx.save();
-    ctx.translate(W / 2, W / 2);
-    ctx.rotate(game.cam.yaw - p.heading);
-    ctx.fillStyle = '#7fe0ff';
+    ctx.translate(x, y);
+    ctx.rotate(rot);
+    ctx.fillStyle = color;
+    ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(0, -7);
-    ctx.lineTo(5, 5);
-    ctx.lineTo(-5, 5);
+    ctx.moveTo(0, -size);
+    ctx.lineTo(size * 0.72, size * 0.72);
+    ctx.lineTo(0, size * 0.35);
+    ctx.lineTo(-size * 0.72, size * 0.72);
     ctx.closePath();
+    ctx.stroke();
     ctx.fill();
     ctx.restore();
   }
@@ -525,7 +572,7 @@ export class UI {
       p.list
         .map(
           (m) =>
-            `<div class="member${m.dead ? ' down' : ''}${m.away ? ' away' : ''}"><span>${CLASSES[m.cls]?.icon || ''} ${esc(m.name)}${m.dead ? ' ✖' : m.away ? ' …' : ''}</span><div class="mbar"><i style="width:${Math.round(Math.max(0, Math.min(1, m.hp)) * 100)}%"></i></div></div>`,
+            `<div class="member${m.dead ? ' down' : ''}${m.away ? ' away' : ''}"><span><i class="pdot" style="background:${m.color}"></i>${CLASSES[m.cls]?.icon || ''} ${esc(m.name)}${m.dead ? ' ✖' : m.away ? ' …' : ''}</span><div class="mbar"><i style="width:${Math.round(Math.max(0, Math.min(1, m.hp)) * 100)}%"></i></div></div>`,
         )
         .join('');
     const pm = $('pauseMp');

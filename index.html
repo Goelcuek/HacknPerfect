@@ -6,6 +6,12 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="theme-color" content="#0b0d14" />
+    <!-- installable: "Add to Home Screen" on iPhone/iPad runs it full screen like an app -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="HacknPerfect" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="icons/icon-180.png" />
     <title>Hack n Perfect</title>
     <link rel="stylesheet" href="style.css" />
     <!-- WebRTC peer-to-peer for multiplayer (PeerJS, MIT) -->
@@ -28,7 +34,7 @@
       <div id="combo"></div>
       <div id="stats">
         <div class="bar hp"><div id="hpFill"></div><div id="shieldFill"></div><span id="hpText">100 / 100</span></div>
-        <div class="subrow"><div id="dashPips"></div><div id="buffs"></div></div>
+        <div class="subrow"><div id="buffs"></div></div>
         <div class="row">
           <span id="floorText">Floor 1</span>
           <span id="goldText">💰 0</span>
@@ -59,14 +65,14 @@
 
       <div id="touch">
         <div id="joyBase"><div id="joyKnob"></div></div>
-        <div class="tbtn" id="dashBtn" data-btn="dash">💨<small>DASH</small></div>
-        <div class="tbtn" id="jumpBtn" data-btn="jump">⤒<small>JUMP</small></div>
         <div id="attackWrap">
           <div class="tskill" data-btn="skill0" data-dir="0"></div>
           <div class="tskill" data-btn="skill1" data-dir="1"></div>
           <div class="tskill" data-btn="skill2" data-dir="2"></div>
           <div class="tskill" data-btn="skill3" data-dir="3"></div>
-          <div class="tbtn big" id="attackBtn" data-btn="attack">⚔</div>
+          <div class="tbtn" id="dashBtn" data-btn="dash"><span class="glyph">»</span><small>DASH</small><div class="charges"></div></div>
+          <div class="tbtn" id="jumpBtn" data-btn="jump"><span class="glyph">▲</span><small>JUMP</small></div>
+          <div class="tbtn big" id="attackBtn" data-btn="attack"><span class="glyph">⚔</span></div>
         </div>
       </div>
     </div>
