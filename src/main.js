@@ -10,6 +10,7 @@ import { Input } from './input.js';
 import { UI } from './ui.js';
 import { Game, loadBest } from './game.js';
 import { initAudio } from './audio.js';
+import { setTrack, setDuck, jingle, isMusicOn, setMusicOn } from './music.js';
 import { loadAssets } from './assets.js';
 import { readSave, clearSave } from './save.js';
 
@@ -180,7 +181,12 @@ ui.bindMenus({
   pause: () => game.pause(),
   quality: cycleQuality,
   fps: () => setPerf(!perf.on),
+  music: () => {
+    setMusicOn(!isMusicOn());
+    ui.setMusicLabel(isMusicOn());
+  },
 });
+ui.setMusicLabel(isMusicOn());
 // ---- multiplayer lobby
 game.net.onStatus = (msg) => {
   ui.mpStatus(msg);
@@ -391,7 +397,30 @@ function frame(now) {
   if (perf.on) drawPerf(ms, budget);
   step(dt);
   if (game.player) game.render();
+  updateMusic();
 }
+
+// Which track fits the moment: the title theme in menus, the floor setting's own
+// tune in the dungeon, the boss theme once a den lord (or the throne's king) wakes.
+let musicState = null;
+function updateMusic() {
+  const st = game.state;
+  if (st === 'dead' && musicState !== 'dead') jingle('death');
+  musicState = st;
+  setDuck(st === 'pause' ? 0.45 : 1);
+  if (st === 'title' || st === 'classSelect') return setTrack('title');
+  if (st === 'dead' || !game.dungeon) return setTrack(null);
+  const b = game.boss;
+  if (b && b.alive && b.aggro) return setTrack(game.dungeon.isBoss ? 'throne' : 'boss');
+  setTrack(game.dungeon.theme.id);
+}
+
+window.addEventListener('keydown', (e) => {
+  if (e.code !== 'KeyM' || e.repeat || e.target.tagName === 'INPUT') return;
+  setMusicOn(!isMusicOn());
+  ui.setMusicLabel(isMusicOn());
+  ui.toast(`Music ${isMusicOn() ? 'on' : 'off'}`, 1.2);
+});
 
 // Test hook: set window.__manual = true to stop the clock, then __advance(seconds)
 // steps the simulation at a fixed 60 Hz (used by the headless screenshot tests).

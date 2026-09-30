@@ -148,6 +148,7 @@ chains dashes between targets.
 | Skills        | `Q` `E` `R` `C` (or `1`–`4`) | **Swipe from ⚔** ↑ → ↓ ← (or tap the icon) |
 | Equip loot    | `F`                         | **Equip** on the loot card               |
 | Pause         | `Esc` / `P`                 | ❚❚ button                                |
+| Music on/off  | `M`                         | **Music** in the pause menu              |
 
 ## Gameplay
 
@@ -255,6 +256,29 @@ Performance notes:
   only touches the page when a value changes. Particles and damage numbers are recycled instead
   of created per hit (less garbage collection, so fewer hitches).
 
+## Soundtrack
+
+An original score in the spirit of the old RuneScape tunes: harp arpeggios, flute, oboe and
+brass melodies over string or choir pads, pizzicato bass and timpani, in a hall reverb. Nothing
+is recorded. Every track is synthesized live with WebAudio from a short recipe (key, mode,
+tempo, chord progression, instruments, drum pattern), and a seeded melody writer composes each
+tune as a 16-bar AABA loop. That keeps the download at zero bytes.
+
+- **Title theme:** a calm F-major harp-and-flute piece.
+- **One tune per floor setting,** each in its own key, mode and tempo. For example:
+  - Forgotten Crypt: D Dorian with an oboe.
+  - Flooded Catacombs: a slow flute over a choir.
+  - Ember Halls: Phrygian brass with tribal drums.
+  - Fungal Grotto: a Lydian glockenspiel.
+  - Blood Temple: Phrygian dominant with heavy timpani.
+  - Gilded Treasury: a festive Mixolydian march.
+- **Boss music:** a den boss waking up switches to a driving harmonic-minor battle theme. The
+  Bone King's throne on every fifth floor has its own theme.
+- **Jingles:** a short fanfare plays when a floor's portal opens and a harp lament when you fall.
+  The pause menu turns the music down.
+- **On/off:** *Music: on/off* on the title screen or in the pause menu (or `M`) is separate from
+  *Sound* (effects). Both choices are remembered.
+
 ## Code layout
 
 | File              | Purpose                                                         |
@@ -283,6 +307,7 @@ Performance notes:
 | `src/remote.js`   | Other players' heroes, interpolated and animated from the network |
 | `src/effects.js`  | Particles, slashes, rings, lightning, meteors, damage numbers   |
 | `src/audio.js`    | Synthesized WebAudio sound effects                              |
+| `src/music.js`    | Synthesized soundtrack: instruments, melody writer, scheduler   |
 | `assets/models/`  | Optimised KayKit characters, animation library, gear and props  |
 | `tools/build-assets.mjs` | Rebuilds `assets/models/` from the KayKit packs          |
 

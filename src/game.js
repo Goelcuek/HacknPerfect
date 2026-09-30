@@ -14,6 +14,7 @@ import { buildDropModel } from './gear.js';
 import { G, mat } from './rig.js';
 import { propModel, hingeLid, gearModel } from './assets.js';
 import { sfx } from './audio.js';
+import { jingle } from './music.js';
 import { clamp, angleDiff, rng } from './utils.js';
 import { Net } from './net.js';
 import { readSave, writeSave, clearSave, packItem, unpackItem, replayBlessings } from './save.js';
@@ -643,7 +644,7 @@ export class Game {
     this.portal = { x, z, mesh: g, ring, ringMat, disc, discMat, light, runeMat, active: false };
   }
 
-  activatePortal() {
+  activatePortal(quiet = false) {
     const pt = this.portal;
     pt.active = true;
     pt.ringMat.color.setHex(0xb18cff);
@@ -651,7 +652,9 @@ export class Game {
     pt.discMat.color.setHex(0x9d7dff);
     pt.runeMat.emissive.setHex(0x9d7dff);
     pt.light.intensity = 6;
+    if (quiet) return;
     sfx.portal();
+    jingle('clear');
     this.ui.toast(this.bossName ? `${this.bossName} falls! The portal is open ✦` : 'Floor cleared! Find the portal ✦', 2.5);
     if (this.net.isHost && this.net.live) this.net.broadcast('portal', { f: this.floor });
   }
@@ -1973,7 +1976,7 @@ export class Game {
     }
     if (this.bossName ? !this.enemies.some((e) => e.alive && e.def.boss) : !this.enemies.some((e) => e.alive && !e.disguised && !e.dormant)) {
       this.floorCleared = true;
-      this.activatePortal();
+      this.activatePortal(true);
     }
     this.ui.showHUD();
     this.input.reset();

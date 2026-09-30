@@ -500,6 +500,10 @@ export class UI {
     $('muteBtn').textContent = `Sound: ${isMuted() ? 'off' : 'on'}`;
   }
 
+  setMusicLabel(on) {
+    for (const id of ['musicBtn', 'musicBtn2']) $(id).textContent = `Music: ${on ? 'on' : 'off'}`;
+  }
+
   setFpsLabel(on) {
     for (const id of ['fpsBtn', 'fpsBtn2']) $(id).textContent = `FPS: ${on ? 'on' : 'off'}`;
   }
@@ -636,5 +640,7 @@ export class UI {
     $('qualityBtn2').onclick = handlers.quality;
     $('fpsBtn').onclick = handlers.fps;
     $('fpsBtn2').onclick = handlers.fps;
+    $('musicBtn').onclick = handlers.music;
+    $('musicBtn2').onclick = handlers.music;
   }
 }

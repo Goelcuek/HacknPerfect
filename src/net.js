@@ -450,7 +450,7 @@ export class Net {
         for (const s of m.list || []) g.spawnPuppet(s);
         if (m.portal && !g.floorCleared) {
           g.floorCleared = true;
-          g.activatePortal();
+          g.activatePortal(true);
         }
         return;
       case 'es':

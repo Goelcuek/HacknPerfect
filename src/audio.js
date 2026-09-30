@@ -2,8 +2,18 @@
 
 let ctx = null;
 let master = null;
-let muted = false;
+const PREF = 'hacknperfect.sound';
+let muted = (() => {
+  try {
+    return window.localStorage.getItem(PREF) === 'off';
+  } catch (_) {
+    return false;
+  }
+})();
 let noiseBuf = null;
+
+// The shared context, for the music player (null until the first tap or key).
+export const audioCtx = () => ctx;
 
 export function initAudio() {
   if (ctx) {
@@ -14,7 +24,7 @@ export function initAudio() {
   if (!AC) return;
   ctx = new AC();
   master = ctx.createGain();
-  master.gain.value = 0.35;
+  master.gain.value = muted ? 0 : 0.35;
   master.connect(ctx.destination);
   noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 0.5, ctx.sampleRate);
   const d = noiseBuf.getChannelData(0);
@@ -24,6 +34,11 @@ export function initAudio() {
 export function setMuted(m) {
   muted = m;
   if (master) master.gain.value = m ? 0 : 0.35;
+  try {
+    window.localStorage.setItem(PREF, m ? 'off' : 'on');
+  } catch (_) {
+    /* unavailable: the choice lasts this session */
+  }
 }
 export const isMuted = () => muted;
 
