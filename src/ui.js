@@ -345,6 +345,7 @@ export class UI {
     const b = game.boss;
     if (b && b.alive && b.aggro) {
       this.show('bossbar');
+      text($('bossName'), b.def.name);
       css($('bossFill'), 'width', `${((100 * b.hp) / b.maxHp).toFixed(1)}%`);
     } else this.hide('bossbar');
 

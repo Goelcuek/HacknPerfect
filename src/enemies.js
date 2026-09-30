@@ -8,6 +8,7 @@ import { sfx } from './audio.js';
 import { G, mat, part } from './rig.js';
 import { CharacterModel } from './model.js';
 import { gearModel, mergeCharacter, clip, propModel, hingeLid } from './assets.js';
+import { HERO_LOOKS } from './hero.js';
 
 // gear: [libraryModel, hand] — 'r' right hand, 'l' left hand, 'x' crossbow grip
 export const ENEMY_TYPES = {
@@ -17,8 +18,26 @@ export const ENEMY_TYPES = {
   mage: { name: 'Skeleton Mage', model: 'Skeleton_Mage', mscale: 0.8, gear: [['Skeleton_Staff', 'r']], hp: 30, dmg: 10, speed: 3.2, radius: 0.45, height: 1.9, range: 14, keep: 9, windup: 0.75, recover: 1.5, color: 0xd8c8ff, gold: [4, 9], ranged: true, caster: true, walk: 'Walking_C', run: 'Running_A' },
   mimic: { name: 'Mimic', prop: 'chest', hp: 90, dmg: 15, speed: 5.4, radius: 0.65, height: 1.0, range: 2.0, windup: 0.35, recover: 0.65, color: 0xc89a50, gold: [30, 50] },
   wisp: { name: 'Wisp', hp: 18, dmg: 7, speed: 6.5, radius: 0.4, height: 0.8, hover: 1.3, range: 2.2, windup: 0.3, recover: 0.6, color: 0xa98bff, gold: [2, 5] },
-  boss: { name: 'The Bone King', model: 'Skeleton_Warrior', mscale: 1.75, gear: [['Skeleton_Axe', 'r'], ['Skeleton_Shield_Large_B', 'l']], hp: 1000, dmg: 22, speed: 3.6, radius: 1.5, height: 3.8, range: 3.8, windup: 0.8, recover: 0.9, color: 0x5a2a6a, gold: [120, 180], heavy: true, boss: true, walk: 'Walking_A', run: 'Running_B', attack: '2H_Melee_Attack_Chop' },
+  boss: { name: 'The Bone King', model: 'Skeleton_Warrior', mscale: 1.75, gear: [['Skeleton_Axe', 'r'], ['Skeleton_Shield_Large_B', 'l']], hp: 1000, dmg: 22, speed: 3.6, radius: 1.5, height: 3.8, range: 3.8, windup: 0.8, recover: 0.9, color: 0x5a2a6a, gold: [120, 180], heavy: true, boss: true, walk: 'Walking_A', run: 'Running_B', attack: '2H_Melee_Attack_Chop', moves: ['slam', 'volley', 'charge'], enraged: ['nova', 'summon'] },
+
+  // ---- the wider bestiary. `ai` picks the behaviour (defaults to the type name);
+  // `look` dresses a hero model (a fallen adventurer) and `tint` darkens it.
+  bomber: { name: 'Bone Bomber', model: 'Skeleton_Minion', mscale: 0.7, gear: [], back: 'barrel_small', hp: 22, dmg: 24, speed: 5.8, radius: 0.45, height: 1.5, range: 2.2, windup: 0.75, recover: 0.2, color: 0xff8a3a, gold: [3, 7], ai: 'bomb', tint: 0xffc0a0, walk: 'Running_C', run: 'Running_C' },
+  knight: { name: 'Fallen Knight', model: 'Knight', look: { cls: 'knight', show: ['1H_Sword', 'Rectangle_Shield', 'Knight_Helmet'] }, tint: 0x8a80a0, mscale: 0.8, gear: [], hp: 80, dmg: 14, speed: 3.6, radius: 0.55, height: 1.9, range: 2.0, windup: 0.5, recover: 0.7, color: 0xa8a0c0, gold: [6, 12], ai: 'grunt', guard: 0.6, walk: 'Walking_A', run: 'Running_A', attack: '1H_Melee_Attack_Chop' },
+  berserker: { name: 'Fallen Barbarian', model: 'Barbarian', look: { cls: 'barbarian', show: ['2H_Axe', 'Barbarian_Hat'] }, tint: 0xa07a6a, mscale: 0.82, gear: [], hp: 95, dmg: 18, speed: 4.0, radius: 0.6, height: 1.95, range: 2.4, windup: 0.55, recover: 0.8, color: 0xc08a6a, gold: [8, 14], ai: 'charge', walk: 'Walking_A', run: 'Running_B', attack: '2H_Melee_Attack_Chop' },
+  warlock: { name: 'Cultist Warlock', model: 'Mage', look: { cls: 'mage', show: ['2H_Staff', 'Mage_Hat'] }, tint: 0x9a5a80, mscale: 0.8, gear: [], hp: 38, dmg: 16, speed: 3.2, radius: 0.45, height: 1.9, range: 13, keep: 9, windup: 1.0, recover: 1.8, color: 0xd070a0, gold: [5, 10], ranged: true, caster: true, ai: 'hex', walk: 'Walking_A', run: 'Running_A' },
+  shade: { name: 'Shade', model: 'Rogue_Hooded', look: { cls: 'ranger', show: ['Knife', 'Knife_Offhand'] }, tint: 0x505070, mscale: 0.8, gear: [], hp: 42, dmg: 13, speed: 5.2, radius: 0.45, height: 1.8, range: 1.9, windup: 0.35, recover: 0.6, color: 0x7070a0, gold: [5, 10], ai: 'blink', walk: 'Walking_A', run: 'Running_A', attack: '1H_Melee_Attack_Stab' },
+
+  // ---- den bosses: one guards the portal on every floor (the Bone King rules every 5th)
+  warlord: { name: 'Skeleton Warlord', model: 'Skeleton_Warrior', mscale: 1.4, gear: [['Skeleton_Axe', 'r'], ['Skeleton_Shield_Large_A', 'l']], hp: 420, dmg: 18, speed: 3.6, radius: 1.2, height: 3.1, range: 3.2, windup: 0.8, recover: 0.9, color: 0xb0a080, gold: [50, 80], heavy: true, boss: true, den: true, walk: 'Walking_A', run: 'Running_B', attack: '2H_Melee_Attack_Chop', moves: ['slam', 'charge', 'slam'], enraged: ['summon', 'nova'] },
+  lich: { name: 'The Lich', model: 'Skeleton_Mage', mscale: 1.45, gear: [['Skeleton_Staff', 'r']], hp: 360, dmg: 16, speed: 3.0, radius: 1.0, height: 3.2, range: 3.0, windup: 0.8, recover: 0.9, color: 0xa080ff, gold: [50, 80], boss: true, den: true, walk: 'Walking_C', run: 'Running_A', moves: ['volley', 'volley', 'hex'], enraged: ['summon', 'nova', 'hex'] },
+  deathknight: { name: 'Death Knight', model: 'Knight', look: { cls: 'knight', show: ['2H_Sword', 'Knight_Helmet', 'Knight_Cape'] }, tint: 0x6a6080, mscale: 1.25, gear: [], hp: 440, dmg: 19, speed: 3.8, radius: 1.0, height: 2.9, range: 3.2, windup: 0.8, recover: 0.9, color: 0x8a80b0, gold: [50, 80], heavy: true, boss: true, den: true, guard: 0.4, walk: 'Walking_A', run: 'Running_A', attack: '2H_Melee_Attack_Chop', moves: ['charge', 'slam', 'slam'], enraged: ['charge', 'nova'] },
+  butcher: { name: 'The Butcher', model: 'Barbarian', look: { cls: 'barbarian', show: ['2H_Axe', 'Barbarian_Hat', 'Barbarian_Cape'] }, tint: 0xb07060, mscale: 1.3, gear: [], hp: 460, dmg: 20, speed: 3.9, radius: 1.1, height: 3.0, range: 3.4, windup: 0.8, recover: 0.9, color: 0xc07050, gold: [50, 80], heavy: true, boss: true, den: true, walk: 'Walking_A', run: 'Running_B', attack: '2H_Melee_Attack_Chop', moves: ['charge', 'charge', 'slam'], enraged: ['nova', 'charge'] },
+  matriarch: { name: 'Shade Matriarch', model: 'Rogue_Hooded', look: { cls: 'ranger', show: ['Knife', 'Knife_Offhand', 'Rogue_Cape'] }, tint: 0x5a5a88, mscale: 1.25, gear: [], hp: 340, dmg: 17, speed: 4.6, radius: 0.9, height: 2.8, range: 2.6, windup: 0.7, recover: 0.8, color: 0x8080c0, gold: [50, 80], boss: true, den: true, walk: 'Walking_A', run: 'Running_A', attack: '1H_Melee_Attack_Stab', moves: ['blink', 'volley', 'blink'], enraged: ['summon', 'blink', 'volley'] },
 };
+
+// Den bosses in rotation (by floor), and the hero looks the fallen adventurers borrow.
+export const DEN_BOSSES = ['warlord', 'lich', 'deathknight', 'butcher', 'matriarch'];
 
 // Elite affixes: each elite rolls one (two from floor 5), shown in its name tag.
 export const AFFIXES = {
@@ -230,7 +249,20 @@ export class Enemy {
         if (hand === 'x') g.rotation.y = Math.PI / 2;
         model.bones[hand === 'l' ? 'handslotl' : 'handslotr'].add(g);
       }
-      if (d.boss) this.crown(model);
+      // fallen adventurers wear a hero model's kit
+      if (d.look) model.only(HERO_LOOKS[d.look.cls].gear, d.look.show);
+      if (d.back) {
+        const barrel = propModel(d.back);
+        if (barrel && model.bones.chest) {
+          // own copies: prop materials are shared with every barrel in the level
+          barrel.traverse((o) => o.isMesh && (o.material = o.material.clone()));
+          barrel.scale.setScalar(0.5);
+          barrel.position.set(0, 0.25, -0.35);
+          barrel.rotation.x = 0.3;
+          model.bones.chest.add(barrel);
+        }
+      }
+      if (this.type === 'boss') this.crown(model);
       // bake everything into a few skinned meshes (one draw call per material)
       const merged = mergeCharacter(model.root);
       for (const m of merged) m.userData.ownGeo = true;
@@ -239,6 +271,7 @@ export class Enemy {
       // eyes: the pack's glow material; recolour for elites and the boss
       this.eyeMat = model.mats.find((m) => m.name === 'Glow') || null;
       this.bodyMats = model.mats.filter((m) => m !== this.eyeMat);
+      if (d.tint) for (const m of this.bodyMats) m.color.multiply(new THREE.Color(d.tint));
       const eye = d.boss ? 0xb04dff : this.elite ? AFFIXES[this.affixes[0]].color : null;
       if (this.eyeMat && eye) {
         this.eyeMat.color.setHex(eye);
@@ -534,6 +567,14 @@ export class Enemy {
         break;
       case 'chase': {
         if (def.boss) return this.bossChase(dt, game, dist, toPlayer, los);
+        // specials: barbarians charge from mid range, shades blink behind their prey
+        const ai = def.ai || this.type;
+        this.skillCd = (this.skillCd ?? 1 + rng.next() * 2) - dt;
+        if (ai === 'charge' && los && Math.abs(dy) < 0.6 && dist > 4.5 && dist < 11 && this.skillCd <= 0) {
+          this.beginCharge(toPlayer, dist);
+          break;
+        }
+        if (ai === 'blink' && los && dist > 4 && dist < 14 && this.skillCd <= 0 && this.blinkBehind(p)) break;
         let dirx = 0;
         let dirz = 0;
         // straight at the player on the same level; otherwise follow the path (stairs)
@@ -595,7 +636,20 @@ export class Enemy {
           mvz = Math.cos(this.heading);
           if (!this.lungeHit && this.lunge > 0) this.checkLungeHit(game);
         }
-        if (this.stateT > 0.25) {
+        if (this.rush > 0) {
+          // barbarian charge: a straight line at full tilt, stopped by walls
+          this.rush -= dt;
+          const hit = dg.move(this, Math.sin(this.heading) * 16 * dt, Math.cos(this.heading) * 16 * dt, false);
+          this.speedNow = 16;
+          if (Math.random() < 0.5) game.effects.puff(this.x, this.y + 0.3, this.z, 0x9a8a70, 0.4, 0.3);
+          if (!this.lungeHit) this.checkLungeHit(game, 1.2);
+          if (hit) {
+            this.rush = 0;
+            this.stun = 0.5;
+            game.effects.shake(0.2);
+          }
+        }
+        if (this.stateT > 0.25 && !(this.rush > 0)) {
           this.state = 'recover';
           this.stateT = 0;
         }
@@ -641,13 +695,25 @@ export class Enemy {
     this.heading = toPlayer;
     this.windupTime = this.def.windup * this.tempo;
     this.castKind = null;
-    if (this.type === 'brute') {
+    const ai = this.def.ai || this.type;
+    if (ai === 'bomb') {
+      // the fuse: a warning circle, then boom
+      this.game.effects.telegraph(this.x, this.z, 3, this.windupTime, 0xff5020);
+      sfx.fire();
+    }
+    if (ai === 'hex') {
+      // mark the ground under the target; it erupts when the spell lands
+      const p = this.lookTarget || this.game.player;
+      this.hexAt = { x: p.x, z: p.z, r: 2.4 };
+      this.game.effects.telegraph(p.x, p.z, 2.4, this.windupTime, 0xd040a0);
+    }
+    if (ai === 'brute') {
       const fx = this.x + Math.sin(this.heading) * 1.6 * this.scale;
       const fz = this.z + Math.cos(this.heading) * 1.6 * this.scale;
       this.slamAt = { x: fx, z: fz, r: 3.2 * this.scale };
       this.game.effects.telegraph(fx, fz, this.slamAt.r, this.windupTime);
     }
-    if (this.type === 'mage') {
+    if (ai === 'mage') {
       this.casts++;
       // every third spell raises the dead instead
       if (this.casts % 3 === 0 && this.game.enemies.filter((e) => e.alive && e.summoned).length < 6) {
@@ -662,8 +728,26 @@ export class Enemy {
   performAttack(game, dist) {
     const p = this.lookTarget || game.player;
     const dmg = this.def.dmg * this.dmgMul;
-    if (this.type === 'grunt' || this.type === 'mimic') {
-      this.lunge = this.type === 'mimic' ? 0.16 : 0.12;
+    const ai = this.def.ai || this.type;
+    if (this.castKind === 'charge') {
+      this.rush = 0.6;
+      this.lungeHit = false;
+      sfx.dash();
+      this.model?.animator.stop(null, 0.1);
+      return;
+    }
+    if (ai === 'bomb') return this.explode(game, dmg);
+    if (ai === 'hex') {
+      const h = this.hexAt || { x: p.x, z: p.z, r: 2.4 };
+      game.effects.burst(h.x, 0.3, h.z, 0xd040a0, 20, 7, 0.2, 0.6);
+      game.effects.ring(h.x, h.z, h.r, 0xff60c0, 0.4);
+      game.shockwave(h.x, h.z, h.r, dmg, this);
+      sfx.fire();
+      this.playAttack();
+      return;
+    }
+    if (ai === 'grunt' || ai === 'mimic' || ai === 'blink' || ai === 'charge') {
+      this.lunge = ai === 'mimic' ? 0.16 : 0.12;
       this.lungeHit = false;
       sfx.swing();
     } else if (this.type === 'wisp') {
@@ -700,6 +784,21 @@ export class Enemy {
     this.playAttack();
   }
 
+  // Bone Bomber: its barrel goes up, taking anything close (skeletons too) with it.
+  explode(game, dmg) {
+    const fx = game.effects;
+    fx.burst(this.x, this.y + 0.8, this.z, 0xff8a3a, 30, 9, 0.22, 0.6);
+    fx.burst(this.x, this.y + 0.6, this.z, 0x404040, 14, 4, 0.3, 0.8);
+    fx.smoke(this.x, this.z);
+    sfx.boom();
+    game.shockwave(this.x, this.z, 3, dmg, this);
+    for (const o of game.enemies.slice()) {
+      if (o === this || !o.alive || Math.hypot(o.x - this.x, o.z - this.z) > 3) continue;
+      game.damageEnemy(o, { amount: dmg * 1.2, crit: false, knock: 8 }, this.x, this.z);
+    }
+    if (this.alive) game.killEnemy(this);
+  }
+
   // Vertical speed for a shot from height y to reach the target's chest (0 on the same level).
   aimVy(p, y, speed) {
     const dy = (p.y || 0) + 1.3 - y;
@@ -708,9 +807,49 @@ export class Enemy {
     return Math.max(-14, Math.min(14, dy / (d / speed)));
   }
 
-  checkLungeHit(game) {
+  // Fallen Barbarian: brace (telegraphed along the path), then charge.
+  beginCharge(toPlayer, dist) {
+    this.state = 'windup';
+    this.stateT = 0;
+    this.heading = toPlayer;
+    this.castKind = 'charge';
+    this.windupTime = 0.7 * this.tempo;
+    this.skillCd = 5 + rng.next() * 2;
+    const len = Math.min(dist + 1.5, 10);
+    for (let d = 1.5; d <= len; d += 1.8) this.game.effects.telegraph(this.x + Math.sin(toPlayer) * d, this.z + Math.cos(toPlayer) * d, 0.9, this.windupTime, 0xff7040);
+    if (this.model) this.model.animator.play('Blocking', { part: 'upper', loop: true, fadeIn: 0.1 });
+  }
+
+  // Shade: vanish in smoke and step out right behind the target, blade first.
+  blinkBehind(p) {
+    const dg = this.game.dungeon;
+    const h = p.heading ?? Math.atan2(p.x - this.x, p.z - this.z);
+    for (const off of [Math.PI, Math.PI * 0.7, -Math.PI * 0.7]) {
+      const x = p.x + Math.sin(h + off) * 1.7;
+      const z = p.z + Math.cos(h + off) * 1.7;
+      if (dg.blocked(x, z, this.radius, (p.y || 0) + 0.3) || Math.abs(dg.floorAt(x, z) - (p.y || 0)) > 0.6) continue;
+      const fx = this.game.effects;
+      fx.smoke(this.x, this.z);
+      fx.burst(this.x, this.y + 1, this.z, 0x404058, 10, 3, 0.2, 0.5);
+      this.x = x;
+      this.z = z;
+      this.groundY = dg.floorAt(x, z);
+      this.y = this.groundY;
+      fx.smoke(x, z);
+      fx.burst(x, this.y + 1, z, 0x7070a0, 10, 3, 0.2, 0.5);
+      sfx.dash();
+      this.skillCd = 5 + rng.next() * 2;
+      this.beginWindup(Math.atan2(p.x - x, p.z - z));
+      this.windupTime = 0.45 * this.tempo;
+      return true;
+    }
+    this.skillCd = 1;
+    return false;
+  }
+
+  checkLungeHit(game, extra = 0) {
     const p = this.lookTarget || game.player;
-    const reach = this.def.range + this.radius;
+    const reach = this.def.range + this.radius + extra;
     const dx = p.x - this.x;
     const dz = p.z - this.z;
     const d = Math.hypot(dx, dz);
@@ -733,15 +872,30 @@ export class Enemy {
     this.bossMove -= dt;
     this.turnTo(toPlayer, dt, 4);
     if (this.bossMove <= 0 && this.stateT > (enraged ? 0.6 : 1.1)) {
-      const moves = ['slam', 'volley', 'charge'];
-      if (enraged) moves.push('nova', 'summon');
+      // each boss has its own repertoire, and more tricks once below half health
+      const moves = [...(this.def.moves || ['slam', 'volley', 'charge'])];
+      if (enraged) moves.push(...(this.def.enraged || ['nova', 'summon']));
       let m = rng.pick(moves);
-      if (dist < 5 && rng.next() < 0.5) m = 'slam';
+      if (dist < 5 && rng.next() < 0.5 && moves.includes('slam')) m = 'slam';
       this.bossAttack = m;
       this.state = 'bosswind';
       this.stateT = 0;
-      this.bossWind = m === 'charge' ? 0.7 : m === 'volley' ? 0.6 : m === 'summon' ? 1.2 : 1.0;
+      this.bossWind = m === 'charge' ? 0.7 : m === 'volley' ? 0.6 : m === 'summon' ? 1.2 : m === 'blink' ? 0.45 : m === 'hex' ? 1.15 : 1.0;
       if (enraged) this.bossWind *= 0.75;
+      const p = this.lookTarget || game.player;
+      if (m === 'hex') {
+        // marks under and around the target that erupt together
+        this.hexes = [{ x: p.x, z: p.z }];
+        const n = enraged ? 4 : 2;
+        for (let i = 0; i < n; i++) {
+          const a = rng.next() * Math.PI * 2;
+          this.hexes.push({ x: p.x + Math.cos(a) * 3.5, z: p.z + Math.sin(a) * 3.5 });
+        }
+        for (const h of this.hexes) game.effects.telegraph(h.x, h.z, 2.6, this.bossWind, 0xd040a0);
+      } else if (m === 'blink') {
+        game.effects.smoke(this.x, this.z);
+        game.effects.burst(this.x, this.y + 1.5, this.z, 0x404058, 16, 4, 0.25, 0.6);
+      }
       if (m === 'slam') {
         const fx = this.x + Math.sin(toPlayer) * 2.5;
         const fz = this.z + Math.cos(toPlayer) * 2.5;
@@ -787,6 +941,37 @@ export class Enemy {
           sfx.dash();
         } else if (m === 'summon') {
           game.raiseDead(this, 3);
+        } else if (m === 'hex') {
+          for (const h of this.hexes || []) {
+            game.effects.burst(h.x, 0.3, h.z, 0xd040a0, 16, 7, 0.2, 0.6);
+            game.shockwave(h.x, h.z, 2.6, dmg * 0.9, this);
+          }
+          sfx.fire();
+        } else if (m === 'blink') {
+          // step out behind the target, then a quick telegraphed slam
+          const tp = this.lookTarget || game.player;
+          const h = tp.heading ?? 0;
+          const dg = game.dungeon;
+          for (const off of [Math.PI, Math.PI * 0.6, -Math.PI * 0.6]) {
+            const x = tp.x + Math.sin(h + off) * 3;
+            const z = tp.z + Math.cos(h + off) * 3;
+            if (dg.blocked(x, z, this.radius, (tp.y || 0) + 0.3)) continue;
+            this.x = x;
+            this.z = z;
+            break;
+          }
+          game.effects.smoke(this.x, this.z);
+          sfx.dash();
+          this.heading = Math.atan2(tp.x - this.x, tp.z - this.z);
+          const fx = this.x + Math.sin(this.heading) * 2;
+          const fz = this.z + Math.cos(this.heading) * 2;
+          this.slamAt = { x: fx, z: fz, r: 3.4 };
+          this.bossAttack = 'slam';
+          this.state = 'bosswind';
+          this.stateT = 0;
+          this.bossWind = 0.5;
+          game.effects.telegraph(fx, fz, 3.4, this.bossWind);
+          this.playBossWindup('slam');
         }
       }
       this.render(dt);
@@ -840,9 +1025,15 @@ export class Enemy {
     if (!this.model) return;
     const an = this.model.animator;
     const w = this.windupTime;
-    switch (this.type) {
+    switch (this.def.ai || this.type) {
       case 'grunt':
-        return this.strike('1H_Melee_Attack_Chop', w + 0.06);
+      case 'blink':
+      case 'charge':
+        return this.strike(this.def.attack || '1H_Melee_Attack_Chop', w + 0.06);
+      case 'bomb':
+        return an.play('Taunt_Longer', { part: 'upper', loop: true, fadeIn: 0.1 });
+      case 'hex':
+        return an.play('Spellcasting', { part: 'upper', loop: true, fadeIn: 0.12 });
       case 'brute':
         return this.strike('2H_Melee_Attack_Chop', w, { windup: 0.6 });
       case 'archer':
@@ -859,17 +1050,19 @@ export class Enemy {
     if (!this.model) return;
     const an = this.model.animator;
     if (this.type === 'archer') an.play('2H_Ranged_Shoot', { part: 'upper', from: 0.08, dur: 0.5, fadeIn: 0.03 });
-    else if (this.type === 'mage' && this.castKind !== 'summon') an.play('Spellcast_Shoot', { part: 'upper', from: 0.05, dur: 0.6, fadeIn: 0.03 });
+    else if ((this.type === 'mage' && this.castKind !== 'summon') || this.def.ai === 'hex') an.play('Spellcast_Shoot', { part: 'upper', from: 0.05, dur: 0.6, fadeIn: 0.03 });
   }
 
   playBossWindup(m) {
     const an = this.model.animator;
     const w = this.bossWind;
-    if (m === 'slam') this.strike('2H_Melee_Attack_Chop', w, { windup: 0.65 });
+    if (m === 'slam') this.strike(this.def.attack || '2H_Melee_Attack_Chop', w, { windup: 0.65 });
     else if (m === 'nova') this.strike('1H_Melee_Attack_Jump_Chop', w, { windup: 0.7 });
     else if (m === 'volley') this.strike('Throw', w, { windup: 0.6 });
     else if (m === 'summon') this.strike('Spellcast_Summon', w, { windup: 1.8, after: 0.6 });
     else if (m === 'charge') an.play('Blocking', { part: 'upper', loop: true, fadeIn: 0.1 });
+    else if (m === 'hex') an.play('Spellcasting', { part: 'upper', loop: true, fadeIn: 0.12 });
+    else if (m === 'blink') this.strike('Dodge_Backward', w, { windup: 0.3 });
   }
 
   render(dt, frozen = false) {

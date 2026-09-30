@@ -363,6 +363,11 @@ function skull(b, F, p, rot = 0, s = 1, color) {
   for (const e of [-1, 1]) put(b, F, G.sphere(0.03, 6, 4), 'dark', [p[0] + Math.cos(rot) * 0.045 * e * s + Math.sin(rot) * 0.09 * s, p[1] + 0.11 * s, p[2] - Math.sin(rot) * 0.045 * e * s + Math.cos(rot) * 0.09 * s]);
 }
 
+// Candle flame colour for a setting (warm, violet in the void, or the setting's own).
+function candleColor(th) {
+  return th.candle ?? (th.style === 'void' ? 0xb080ff : 0xff9a3a);
+}
+
 function candle(b, fires, F, lx, y, lz, h = 0.22, tint = 0xff9a3a) {
   put(b, F, G.cyl(0.035, 0.042, h, 8), 'wax', [lx, y + h / 2, lz]);
   put(b, F, G.cyl(0.05, 0.06, 0.04, 8), 'wax', [lx, y + 0.02, lz]);
@@ -652,7 +657,7 @@ function propStatue(b, F, r, theme) {
   put(b, F, G.blade(1.1, 0.07, 0.25), 'stone', [0, y0 + 0.05, 0.38], null, 1, tint);
   put(b, F, G.box(0.36, 0.06, 0.08), 'stone', [0, y0 + 1.15, 0.38], null, 1, tint);
   put(b, F, G.cyl(0.03, 0.03, 0.25, 6), 'stone', [0, y0 + 1.3, 0.38], null, 1, tint);
-  if (theme.id === 'moss') for (let k = 0; k < 5; k++) put(b, F, G.sphere(0.15, 6, 5), 'moss', [(r.next() - 0.5) * 0.9, 0.5 + r.next() * 0.2, (r.next() - 0.5) * 0.9], null, [1, 0.4, 1]);
+  if (theme.style === 'moss') for (let k = 0; k < 5; k++) put(b, F, G.sphere(0.15, 6, 5), 'moss', [(r.next() - 0.5) * 0.9, 0.5 + r.next() * 0.2, (r.next() - 0.5) * 0.9], null, [1, 0.4, 1]);
 }
 
 function propSarcophagus(b, fires, F, r, theme) {
@@ -675,8 +680,8 @@ function propAltar(b, fires, F, r, theme) {
   put(b, F, G.box(0.5, 0.6, 0.012), 'cloth', [0, 0.7, 0.456], null, 1, theme.banner);
   put(b, F, G.lathe('chalice', [[0.001, 0], [0.09, 0], [0.03, 0.03], [0.02, 0.12], [0.08, 0.2], [0.09, 0.26], [0.001, 0.2]], 10), 'gold', [0, 1.0, 0]);
   skull(b, F, [0.45, 1.0, -0.1], -0.3);
-  for (const x of [-0.7, -0.55, 0.68]) candle(b, fires, F, x, 1.0, 0.15 + r.next() * 0.2, 0.15 + r.next() * 0.25, theme.id === 'void' ? 0xb080ff : 0xff9a3a);
-  if (theme.id === 'void') put(b, F, G.torus(0.6, 0.02, Math.PI * 2, 3, 30), 'rune', [0, 0.02, 0.9], [Math.PI / 2, 0, 0]);
+  for (const x of [-0.7, -0.55, 0.68]) candle(b, fires, F, x, 1.0, 0.15 + r.next() * 0.2, 0.15 + r.next() * 0.25, candleColor(theme));
+  if (theme.style === 'void') put(b, F, G.torus(0.6, 0.02, Math.PI * 2, 3, 30), 'rune', [0, 0.02, 0.9], [Math.PI / 2, 0, 0]);
 }
 
 function propBrazier(b, fires, F, r, theme) {
@@ -688,7 +693,7 @@ function propBrazier(b, fires, F, r, theme) {
   put(b, F, G.torus(0.52, 0.03, Math.PI * 2, 4, 16), 'metal', [0, 1.21, 0], [Math.PI / 2, 0, 0], 1, 0x505058);
   for (let k = 0; k < 7; k++) put(b, F, G.dodeca(0.1), 'coal', [(r.next() - 0.5) * 0.5, 1.12, (r.next() - 0.5) * 0.5], [r.next(), r.next(), 0]);
   const w = new THREE.Vector3(0, 1.1, 0).applyMatrix4(F.m);
-  const tint = theme.id === 'void' ? 0xa060ff : 0xff7a2a;
+  const tint = theme.fire ?? (theme.style === 'void' ? 0xa060ff : theme.torch ?? 0xff7a2a);
   fires.push({ x: w.x, y: w.y, z: w.z, size: 0.75, tint, glow: 3.2, light: true });
   fires.push({ x: w.x + 0.15, y: w.y, z: w.z - 0.1, size: 0.5, tint });
   fires.push({ x: w.x - 0.15, y: w.y, z: w.z + 0.1, size: 0.55, tint });
@@ -907,7 +912,7 @@ export function buildEnvironment(dg, quality = 'high') {
     aoTex: bakeAO(dg),
     aoSize: new THREE.Vector2(W * T, H * T),
     grime: grimeTexture(),
-    grimeTint: new THREE.Color(th.id === 'moss' ? 0x6a9a4a : th.id === 'ember' ? 0x5a3020 : th.id === 'void' ? 0x6a5a9a : 0x6a6a5a),
+    grimeTint: new THREE.Color(th.style === 'moss' ? 0x6a9a4a : th.style === 'ember' ? 0x5a3020 : th.style === 'void' ? 0x6a5a9a : 0x6a6a5a),
   };
   const surf = (tex, o = {}, scale = 0.5) => worldify(new THREE.MeshStandardMaterial({ map: tex.map, normalMap: tex.normalMap, roughnessMap: tex.roughnessMap, roughness: 1, normalScale: new THREE.Vector2(1.3, 1.3), ...o }), shadeEnv, { scale });
   const bt = brickTextures();
@@ -1010,12 +1015,12 @@ export function buildEnvironment(dg, quality = 'high') {
     put(b, F, G.cyl(0.95, 1.0, 0.4, 12), 'stone', [0, 0.2, 0], null, 1, th.wall);
     put(b, F, G.cyl(1.0, 0.85, 0.35, 12), 'stone', [0, WALL_H - 0.4, 0], null, 1, th.wall);
     put(b, F, G.torus(0.78, 0.06, Math.PI * 2, 4, 20), 'stone', [0, 0.45, 0], [Math.PI / 2, 0, 0], 1, th.wall);
-    if (th.id === 'moss' || r.next() < 0.3) for (let k = 0; k < 4; k++) put(b, F, G.sphere(0.3, 6, 5), 'moss', [Math.cos(k * 1.7) * 0.75, 0.3 + r.next() * 1.5, Math.sin(k * 1.7) * 0.75], null, [1, 0.8, 0.3], 0x6a9a3a);
+    if (th.style === 'moss' || r.next() < 0.3) for (let k = 0; k < 4; k++) put(b, F, G.sphere(0.3, 6, 5), 'moss', [Math.cos(k * 1.7) * 0.75, 0.3 + r.next() * 1.5, Math.sin(k * 1.7) * 0.75], null, [1, 0.8, 0.3], 0x6a9a3a);
   }
 
   // ---- wall faces: plinth, cornice, pilasters, sconces and detail
   let faceIdx = 0;
-  const details = WALL_DETAILS[th.id];
+  const details = th.walls || WALL_DETAILS[th.style];
   const wallTint = new THREE.Color(th.wall).offsetHSL(0, -0.05, 0.05).getHex();
   for (const [x, z] of wallTiles) {
     for (const [dx, dz] of DIRS) {
@@ -1054,7 +1059,7 @@ export function buildEnvironment(dg, quality = 'high') {
         }
       }
       // timber framing in some rooms and corridors
-      if (th.id !== 'void' && Math.abs(hash >> 3) % 7 === 0 && lowFloor) {
+      if (th.style !== 'void' && Math.abs(hash >> 3) % 7 === 0 && lowFloor) {
         put(b, F, G.box(0.26, WALL_H - 0.5, 0.2), 'wood', [0.62, (WALL_H - 0.5) / 2, 0.1], null, 1, 0x8a6a4a);
         put(b, F, G.box(T + 0.02, 0.24, 0.2), 'wood', [0, WALL_H - 0.75, 0.1], null, 1, 0x8a6a4a);
         put(b, F, G.box(0.14, 1.3, 0.14), 'wood', [0.2, WALL_H - 1.25, 0.12], [0, 0, -0.75], 1, 0x7a5a3a);
@@ -1067,7 +1072,7 @@ export function buildEnvironment(dg, quality = 'high') {
         put(b, F, G.lathe('sconce', [[0.001, 0], [0.05, 0], [0.16, 0.14], [0.14, 0.16], [0.001, 0.1]], 8), 'metal', [0, 2.3, 0.45], null, 1, 0x444450);
         put(b, F, G.cyl(0.05, 0.06, 0.25, 6), 'wood', [0, 2.35, 0.45]);
         const w = new THREE.Vector3(0, 2.55, 0.45).applyMatrix4(F.m);
-        fires.push({ x: w.x, y: w.y, z: w.z, size: 0.42, tint: 0xff7a2a, glow: 2.4, light: true });
+        fires.push({ x: w.x, y: w.y, z: w.z, size: 0.42, tint: th.torch ?? 0xff7a2a, glow: 2.4, light: true });
         torchSpots.push([w.x, w.z]);
       } else if (r.next() < 0.42 * detailRate && lowFloor) {
         wallDetail(pickWeighted(r, details), b, fires, F, r, th, glows);
@@ -1103,7 +1108,7 @@ export function buildEnvironment(dg, quality = 'high') {
   }
 
   // ---- cobwebs in room corners (upper) and floor clutter
-  const webRate = th.id === 'crypt' ? 0.55 : th.id === 'moss' ? 0.3 : 0.15;
+  const webRate = th.style === 'crypt' ? 0.55 : th.style === 'moss' ? 0.3 : 0.15;
   for (let z = 0; z < H; z++)
     for (let x = 0; x < W; x++) {
       if (dg.get(x, z) !== TILE.FLOOR) continue;
@@ -1131,7 +1136,7 @@ export function buildEnvironment(dg, quality = 'high') {
     // centerpiece
     if (!rm.boss && rm !== dg.startRoom && !woodRooms.has(rm) && rr.next() < 0.3) {
       group.add(rugMesh(rm, rr, cx, cz));
-    } else if (th.id === 'void' || (rm.boss && th.id !== 'ember')) {
+    } else if (th.style === 'void' || (rm.boss && th.style !== 'ember')) {
       const R = Math.min(rm.w, rm.h) * 0.35;
       put(b, F0, G.torus(R, 0.05, Math.PI * 2, 3, 48), 'rune', [0, 0.03, 0], [Math.PI / 2, 0, 0]);
       put(b, F0, G.torus(R * 0.8, 0.03, Math.PI * 2, 3, 40), 'rune', [0, 0.03, 0], [Math.PI / 2, 0, 0]);
@@ -1139,7 +1144,7 @@ export function buildEnvironment(dg, quality = 'high') {
         const a = (k / 8) * Math.PI * 2;
         put(b, F0, G.box(0.3, 0.02, 0.08), 'rune', [Math.cos(a) * R * 0.9, 0.03, Math.sin(a) * R * 0.9], [0, -a, 0]);
       }
-    } else if (th.id === 'ember' && rr.next() < 0.6) {
+    } else if (th.style === 'ember' && rr.next() < 0.6) {
       // glowing grate over lava
       put(b, F0, G.box(1.6, 0.02, 1.6), 'lava', [0, 0.005, 0]);
       for (let k = -3; k <= 3; k++) {
@@ -1163,14 +1168,14 @@ export function buildEnvironment(dg, quality = 'high') {
       else if (roll < 0.47) skull(b, F, [0, 0, 0], 0);
       else if (roll < 0.52) kit(b, F, rr.next() < 0.5 ? 'bottle_A_green' : 'bottle_B_brown', [0, 0, 0], 0, 0.45);
       else if (roll < 0.55) kit(b, F, 'coin', [0, 0.04, 0], 0, 0.7);
-      else if (roll < 0.58 && (th.id === 'crypt' || th.id === 'void')) {
+      else if (roll < 0.58 && (th.style === 'crypt' || th.style === 'void')) {
         kit(b, F, 'candle_thin_lit', [0, 0, 0], 0, 0.7);
         flameAt(fires, F, 0, 0.7, 0);
       }
-      else if (roll < 0.62 && (th.id === 'moss' || th.id === 'crypt')) {
+      else if (roll < 0.62 && (th.style === 'moss' || th.style === 'crypt')) {
         put(b, F, G.cyl(0.5 + rr.next() * 0.5, 0.5, 0.01, 14), 'water', [0, 0.012, 0], null, [1, 1, 0.6 + rr.next() * 0.4], 0x506070);
-      } else if (roll < 0.75 && th.id === 'moss') put(b, F, G.sphere(0.5, 8, 5), 'moss', [0, 0, 0], null, [1 + rr.next(), 0.08, 0.8 + rr.next()], 0x5a8a32);
-      else if (roll < 0.75 && th.id === 'ember') {
+      } else if (roll < 0.75 && th.style === 'moss') put(b, F, G.sphere(0.5, 8, 5), 'moss', [0, 0, 0], null, [1 + rr.next(), 0.08, 0.8 + rr.next()], 0x5a8a32);
+      else if (roll < 0.75 && th.style === 'ember') {
         let lx = 0;
         let lz = 0;
         let a = rr.next() * 6;
@@ -1181,16 +1186,16 @@ export function buildEnvironment(dg, quality = 'high') {
           lz -= Math.sin(a) * len * 0.9;
           a += (rr.next() - 0.5) * 1.4;
         }
-      } else if (roll < 0.82 && th.id !== 'ember') {
+      } else if (roll < 0.82 && th.style !== 'ember') {
         const k = 2 + rr.int(0, 3);
-        for (let c = 0; c < k; c++) candle(b, fires, F, (rr.next() - 0.5) * 0.4, 0, (rr.next() - 0.5) * 0.4, 0.1 + rr.next() * 0.25, th.id === 'void' ? 0xb080ff : 0xff9a3a);
+        for (let c = 0; c < k; c++) candle(b, fires, F, (rr.next() - 0.5) * 0.4, 0, (rr.next() - 0.5) * 0.4, 0.1 + rr.next() * 0.25, candleColor(th));
       } else if (roll < 0.9) {
         // cracked, tilted floor slab
         put(b, F, G.box(0.9, 0.06, 0.7), 'stone', [0, 0.02, 0], [0.04, 0, 0.05], 1, th.floor);
       }
     }
     // light shafts from cracks in the ceiling
-    if (quality !== 'low' && rr.next() < 0.35 && th.id !== 'ember') {
+    if (quality !== 'low' && rr.next() < 0.35 && th.style !== 'ember') {
       const F = frame(cx + (rr.next() - 0.5) * rm.w, 0, cz + (rr.next() - 0.5) * rm.h, rr.next() * 6);
       put(b, F, G.cyl(0.6, 1.6, 12, 12, true), 'shaft', [0, 6, 0], [0.18, 0, 0.1]);
       put(b, F, G.cyl(1.2, 1.2, 0.01, 16), 'shaft', [0.9, 0.02, 0.4], [0, 0, 0], [1, 1, 0.7]);
@@ -1212,7 +1217,7 @@ export function buildEnvironment(dg, quality = 'high') {
 
   // ---- fire + glow + motes
   const extras = buildFireAndGlow(fires, glows, group);
-  const moteColor = { crypt: 0xb8c8ff, moss: 0x9dffb0, ember: 0xffa050, void: 0xd8a0ff }[th.id];
+  const moteColor = th.mote ?? { crypt: 0xb8c8ff, moss: 0x9dffb0, ember: 0xffa050, void: 0xd8a0ff }[th.style];
   let motes = null;
   if (quality !== 'low') {
     const n = quality === 'high' ? 420 : 200;
@@ -1227,12 +1232,12 @@ export function buildEnvironment(dg, quality = 'high') {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setAttribute('seed', new THREE.BufferAttribute(seed, 1));
-    motes = new THREE.Points(geo, moteMaterial(moteColor, th.id === 'ember'));
+    motes = new THREE.Points(geo, moteMaterial(moteColor, th.style === 'ember'));
     motes.frustumCulled = false;
     group.add(motes);
   }
 
-  const lightSpots = [...torchSpots.map((s) => ({ x: s[0], z: s[1], y: 2.6, color: 0xff9a4a })), ...fires.filter((f) => f.light && !torchSpots.some((s) => s[0] === f.x && s[1] === f.z)).map((f) => ({ x: f.x, z: f.z, y: f.y + 0.6, color: f.tint })), ...glows.filter((g) => g.light).map((g) => ({ x: g.x, z: g.z, y: g.y + 0.5, color: g.tint }))];
+  const lightSpots = [...torchSpots.map((s) => ({ x: s[0], z: s[1], y: 2.6, color: th.torchLight ?? 0xff9a4a })), ...fires.filter((f) => f.light && !torchSpots.some((s) => s[0] === f.x && s[1] === f.z)).map((f) => ({ x: f.x, z: f.z, y: f.y + 0.6, color: f.tint })), ...glows.filter((g) => g.light).map((g) => ({ x: g.x, z: g.z, y: g.y + 0.5, color: g.tint }))];
 
   const materials = Object.values(mats);
   return {

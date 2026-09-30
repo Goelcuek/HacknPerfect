@@ -89,12 +89,18 @@ the orientation, so turn off the portrait lock and hold the phone sideways.
 | --------- | --------------- | --------------------------------------------------------------------- |
 | Knight    | Sword + shield  | Tough melee tank: 3-hit combo ending in a spinning slash              |
 | Barbarian | Great axe       | Slow, sweeping two-handed blows, life steal, chains and war totems    |
-| Ranger    | Crossbow        | Ranged and mobile: auto-aimed bolts, every 3rd shot pierces           |
-| Mage      | Staff           | Caster: homing arcane missiles, stronger and faster-recharging skills |
+| Ranger    | Crossbow        | Ranged and mobile: fast auto-aimed bolts that pierce, big 3rd shot    |
+| Mage      | Staff           | Caster: homing arcane missiles that splash, huge area spells          |
 | Rogue     | Twin daggers    | Fast crits: 4-hit dual-wield flurry and two dash charges              |
 
 Pick a class on the character screen; the hero stands in the dungeon behind the menu so you can
 see them before you start.
+
+The classes are balanced with a bot that plays each one through the same fights (floor 1 with one
+skill, floor 4 with two, floor 8 with four skills and epic gear, plus a single-target duel) and
+measures damage per second and damage taken: every class clears about as fast early on, the two
+casters lead at clearing crowds late, the Knight trades damage for toughness. Ranged heroes that
+back away from a pack still shoot it: with nothing ahead, shots go to the nearest enemy.
 
 ## Skills
 
@@ -145,8 +151,18 @@ chains dashes between targets.
 
 ## Gameplay
 
-- **Clear the floor.** The portal opens once every awake monster on the floor is dead. The minimap
-  marks enemies (red), elites (gold), chests and loot; up on the map is the way the camera faces.
+- **Slay the den's lord.** Every floor has a boss den, the big room farthest along, where the
+  portal waits. Its lord guards it: the **Skeleton Warlord** (slams and charges), **The Lich**
+  (orb volleys and hexes that erupt under you), the **Death Knight** (shielded, charges), **The
+  Butcher** (relentless charges) or the **Shade Matriarch** (blinks behind you). Below half health
+  they learn more tricks (summoning, novas). Killing the lord opens the portal and leaves a rich
+  chest; the rest of the floor is optional. Every 5th floor is **The Bone King**'s throne. The
+  minimap marks enemies (red), elites (gold), bosses (purple), chests and loot; up on the map is
+  the way the camera faces.
+- **Every floor is a different place.** Forgotten Crypt, Flooded Catacombs, Ember Halls, Bone
+  Ossuary, Fungal Grotto, Frozen Vault, Blood Temple, Void Sanctum, Sunken Library and Gilded
+  Treasury, one per floor, each with its own palette, fog, light, candles and torches, wall details,
+  furniture and the monsters it favours. Corridors are 6 m wide.
 - **Loot shows on your hero.** Weapons, armor and charms drop in five rarities with random affixes.
   Better weapons swap to bigger models (a two-handed greatsword for knights) and glow with their
   rarity; armor swaps the knight's shield, adds helmets, hats, spellbooks and capes dyed in the
@@ -168,9 +184,13 @@ chains dashes between targets.
   charge, triple jump, blazing dash, thorns…), a full heal, or a reroll of the skill choices.
 - **Enemies.** An undead warband: Skeleton Minions (melee), Skeleton Rogues (crossbows), Skeleton
   Warriors (axe slam: **jump over the shockwave**), Skeleton Mages (orb volleys, and they **raise
-  fallen skeletons** or claw new ones out of the floor), wisps, and **The Bone King** every 5th
-  floor. Some skeletons lie in wait as bone piles and rise when you come close. Enemies can be
-  burned, poisoned, bled, slowed, frozen, stunned or dazed.
+  fallen skeletons** or claw new ones out of the floor) and wisps, joined deeper down by **Bone
+  Bombers** (a barrel on their back: they stop, flash and explode, skeletons included), **Fallen
+  Knights** (their shield blocks 60% from the front: flank them or catch them mid-swing), **Fallen
+  Barbarians** (charge in a straight line from range), **Cultist Warlocks** (hex the ground under
+  you; move!) and **Shades** (vanish and stab you from behind). Some skeletons lie in wait as bone
+  piles and rise when you come close. Enemies can be burned, poisoned, bled, slowed, frozen,
+  stunned or dazed.
 - **Elites** carry one or two affixes, shown in their name tag: Swift, Vampiric (heals when it hits
   you), Explosive (detonates after death), Shielded (a bubble soaks damage), Frenzied (attacks
   faster) and Arcane (sprays orbs).

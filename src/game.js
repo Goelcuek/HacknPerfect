@@ -3,7 +3,7 @@
 // first skill → floors → skill/upgrade choice between floors).
 
 import * as THREE from 'three';
-import { Dungeon, T } from './dungeon.js';
+import { Dungeon, T, denBossForFloor } from './dungeon.js';
 import { Player } from './player.js';
 import { Enemy, ENEMY_TYPES, sharedEnemyMaterials } from './enemies.js';
 import { Effects, Trail } from './effects.js';
@@ -337,7 +337,7 @@ export class Game {
     this.scene.add(levelGroup);
     const th = dg.theme;
     this.scene.background = new THREE.Color(th.fog);
-    this.scene.fog = new THREE.Fog(th.fog, 16, 46);
+    this.scene.fog = new THREE.Fog(th.fog, th.fogNear ?? 16, th.fogFar ?? 46);
     this.hemi.color.setHex(0x9fb0d0).lerp(new THREE.Color(th.accent), 0.15);
 
     this.enemies = [];
@@ -350,6 +350,8 @@ export class Game {
     this.zones = [];
     this.corpses = [];
     this.floorCleared = false;
+    // the floor's boss: its death opens the portal (every floor has one)
+    this.bossName = dg.isBoss ? ENEMY_TYPES.boss.name : dg.denRoom ? ENEMY_TYPES[denBossForFloor(n)].name : null;
     this.boss = null;
 
     const p = this.player;
@@ -388,7 +390,7 @@ export class Game {
     this.revealTimer = 0;
     this.prewarmShaders();
 
-    if (!quiet) this.ui.toast(dg.isBoss ? `Floor ${n} — ☠ Boss Lair ☠` : `Floor ${n} — ${th.name}`, 2.5);
+    if (!quiet) this.ui.toast(dg.isBoss ? `Floor ${n} — ☠ ${this.bossName}'s Throne ☠` : `Floor ${n} — ${th.name}${this.bossName ? ` · ${this.bossName} guards the portal` : ''}`, 3.2);
     if (this.net.isClient && this.inRun) this.net.send('sync', { f: n });
     if (this.net.mode && this.player && this.player.hp <= 0) this.player.hp = Math.round(this.player.final.maxHp * 0.35);
   }
@@ -650,7 +652,7 @@ export class Game {
     pt.runeMat.emissive.setHex(0x9d7dff);
     pt.light.intensity = 6;
     sfx.portal();
-    this.ui.toast(this.dungeon.isBoss ? 'The Bone King falls! Portal open' : 'Floor cleared! Find the portal ✦', 2.5);
+    this.ui.toast(this.bossName ? `${this.bossName} falls! The portal is open ✦` : 'Floor cleared! Find the portal ✦', 2.5);
     if (this.net.isHost && this.net.live) this.net.broadcast('portal', { f: this.floor });
   }
 
@@ -1179,6 +1181,15 @@ export class Game {
     const p = this.player;
     let amount = hit.amount;
     if (!hit.remote && p.mods.execute > 0 && e.hp < e.maxHp * 0.3) amount *= 1 + p.mods.execute;
+    // shield bearers block blows from the front unless they're mid-swing
+    // (a remote player's hit arrives already reduced)
+    if (e.def.guard && !hit.remote && !hit.dot && !['windup', 'attack', 'bosswind', 'bossact'].includes(e.state)) {
+      const toSrc = Math.atan2(fromX - e.x, fromZ - e.z);
+      if (Math.abs(angleDiff(e.heading, toSrc)) < 1.05) {
+        amount *= 1 - e.def.guard;
+        this.effects.burst(e.x + Math.sin(e.heading) * 0.6, e.y + e.height * 0.55, e.z + Math.cos(e.heading) * 0.6, 0xd8e0ff, 6, 5, 0.08, 0.25);
+      }
+    }
     // client: the host owns the monster; send the hit and show it right away
     if (e.puppet) {
       amount = Math.max(1, Math.round(amount));
@@ -1259,15 +1270,20 @@ export class Game {
       this.boss = null;
       for (const m of this.enemies) {
         if (m === e || !m.alive) continue;
+        // a den lord takes only the dead it raised with it; the Bone King takes everything
+        if (e.def.den && !m.summoned) continue;
         m.alive = false;
         m.startDeath(e.x, e.z);
         this.corpses.push(m);
         if (net) this.net.broadcast('ekill', { id: m.id, x: e.x, z: e.z, n: 1 });
       }
-      this.enemies = [e];
+      this.enemies = this.enemies.filter((m) => m.alive || m === e);
     }
     this.enemies = this.enemies.filter((x) => x !== e);
-    if (!this.floorCleared && !this.enemies.some((x) => x.alive && !x.disguised && !x.dormant)) {
+    // the portal opens when the floor's boss falls (or, on a floor without one, when
+    // everything is dead)
+    const bossFloor = !!this.bossName;
+    if (!this.floorCleared && (bossFloor ? e.def.boss : !this.enemies.some((x) => x.alive && !x.disguised && !x.dormant))) {
       this.floorCleared = true;
       this.activatePortal();
     }
@@ -1284,7 +1300,11 @@ export class Game {
     if (gold >= 1) this.dropGold(e.x, e.z, Math.round(gold));
     const cls = p.clsId;
     if (e.def.boss) {
-      for (let i = 0; i < 3; i++) this.dropItem(e.x, e.z, generateItem(this.floor, cls, 6, 2));
+      // the den's treasure: a rich chest for everyone
+      const cx = e.x + 1.8;
+      const cz = e.z;
+      this.spawnChest(this.dungeon.solidAt(cx, cz) ? e.x : cx, cz, true);
+      for (let i = 0; i < (e.def.den ? 2 : 3); i++) this.dropItem(e.x, e.z, generateItem(this.floor, cls, 6, 2));
       this.dropPotion(e.x, e.z);
       this.effects.shake(1);
       this.hitStop(0.25);
@@ -1951,7 +1971,7 @@ export class Game {
       const pk = this.dropItem(l.x, l.z, unpackItem(l.item));
       pk.vx = pk.vz = 0;
     }
-    if (!this.enemies.some((e) => e.alive && !e.disguised && !e.dormant)) {
+    if (this.bossName ? !this.enemies.some((e) => e.alive && e.def.boss) : !this.enemies.some((e) => e.alive && !e.disguised && !e.dormant)) {
       this.floorCleared = true;
       this.activatePortal();
     }

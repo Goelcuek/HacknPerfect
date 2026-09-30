@@ -10,15 +10,25 @@ import { buildEnvironment, PROP_WEIGHTS } from './decor.js';
 export { T, WALL_H, BLOCK_H, STEP_H, STAIR_DIRS, TILE, THEMES };
 
 export function themeForFloor(floor) {
-  return THEMES[Math.floor((floor - 1) / 5) % THEMES.length];
+  return THEMES[(floor - 1) % THEMES.length];
 }
 
-export function enemyPoolForFloor(floor) {
+// Den lords in rotation: a different one guards the portal on each floor.
+const DEN_BOSSES = ['warlord', 'lich', 'deathknight', 'butcher', 'matriarch'];
+export function denBossForFloor(floor) {
+  return DEN_BOSSES[(floor - 1 - Math.floor((floor - 1) / 5)) % DEN_BOSSES.length];
+}
+
+// Which monsters roam a floor: the deeper, the wider the bestiary, and each setting
+// favours its own (theme.foes multiplies weights, e.g. more shades in the Frozen Vault).
+export function enemyPoolForFloor(floor, theme = null) {
   const pool = [{ type: 'grunt', w: 10 }];
-  if (floor >= 2) pool.push({ type: 'archer', w: 5 + floor * 0.5 });
-  if (floor >= 3) pool.push({ type: 'brute', w: 2 + floor * 0.4 });
-  if (floor >= 3) pool.push({ type: 'mage', w: 1.5 + floor * 0.3 });
-  if (floor >= 4) pool.push({ type: 'wisp', w: 3 + floor * 0.3 });
+  if (floor >= 2) pool.push({ type: 'archer', w: 5 + floor * 0.5 }, { type: 'bomber', w: 2 + floor * 0.25 });
+  if (floor >= 3) pool.push({ type: 'brute', w: 2 + floor * 0.4 }, { type: 'mage', w: 1.5 + floor * 0.3 }, { type: 'knight', w: 2 + floor * 0.3 });
+  if (floor >= 4) pool.push({ type: 'wisp', w: 3 + floor * 0.3 }, { type: 'shade', w: 2 + floor * 0.3 });
+  if (floor >= 5) pool.push({ type: 'berserker', w: 2 + floor * 0.3 }, { type: 'warlock', w: 1.5 + floor * 0.3 });
+  const foes = theme?.foes || {};
+  for (const p of pool) p.w *= foes[p.type] ?? 1;
   return pool;
 }
 
@@ -38,7 +48,7 @@ export class Dungeon {
   // ---------------------------------------------------------------- generation
   generate() {
     const r = this.rng;
-    const W = this.isBoss ? 44 : clamp(40 + this.floor * 2, 40, 64);
+    const W = this.isBoss ? 44 : clamp(46 + Math.floor(this.floor * 1.5), 46, 64);
     const H = W;
     this.w = W;
     this.h = H;
@@ -52,17 +62,38 @@ export class Dungeon {
       this.rooms.push({ x: 3, z: Math.floor(H / 2) - 4, w: 8, h: 8 });
       this.rooms.push({ x: 18, z: Math.floor(H / 2) - 10, w: 20, h: 20, boss: true });
     } else {
-      const target = Math.min(5 + Math.floor(this.floor * 0.8), 12);
+      const fits = (x, z, w, h) => this.rooms.every((o) => x + w + 3 < o.x || o.x + o.w + 3 < x || z + h + 3 < o.z || o.z + o.h + 3 < z);
+      // the start room, then the boss den as far from it as it will go
+      const sw = r.int(7, 9);
+      const sh = r.int(7, 9);
+      this.rooms.push({ x: r.int(2, W - sw - 2), z: r.int(2, H - sh - 2), w: sw, h: sh });
+      const st = this.rooms[0];
+      const dw = r.int(13, 15);
+      const dh = r.int(13, 15);
+      let den = null;
+      let far = -1;
+      for (let i = 0; i < 80; i++) {
+        const x = r.int(2, W - dw - 2);
+        const z = r.int(2, H - dh - 2);
+        if (!fits(x, z, dw, dh)) continue;
+        const d = Math.hypot(x + dw / 2 - (st.x + st.w / 2), z + dh / 2 - (st.z + st.h / 2));
+        if (d > far) {
+          far = d;
+          den = { x, z, w: dw, h: dh, den: true };
+        }
+      }
+      if (den) this.rooms.push(den);
+      const target = Math.min(5 + Math.floor(this.floor * 0.5), 10);
       for (let i = 0; i < 400 && this.rooms.length < target; i++) {
         const w = r.int(6, 11);
         const h = r.int(6, 11);
         const x = r.int(2, W - w - 2);
         const z = r.int(2, H - h - 2);
-        const ok = this.rooms.every(
-          (o) => x + w + 3 < o.x || o.x + o.w + 3 < x || z + h + 3 < o.z || o.z + o.h + 3 < z,
-        );
-        if (ok) this.rooms.push({ x, z, w, h });
+        if (fits(x, z, w, h)) this.rooms.push({ x, z, w, h });
       }
+      // dig the den's corridor last, from whichever room is nearest: no straight shot
+      // from the start
+      if (den) this.rooms.push(...this.rooms.splice(this.rooms.indexOf(den), 1));
     }
 
     for (const room of this.rooms) {
@@ -91,19 +122,22 @@ export class Dungeon {
       for (let k = 0; k < 2; k++) this.corridor(r.pick(this.rooms), r.pick(this.rooms));
     }
 
-    // start / exit rooms
+    // start / exit rooms: the portal is in the boss den (or the farthest room)
     this.startRoom = this.rooms[0];
     const dist = this.bfs(this.startRoom.cx, this.startRoom.cz);
-    let exit = this.rooms[this.rooms.length - 1];
-    let far = -1;
-    for (const room of this.rooms) {
-      const d = dist[this.idx(room.cx, room.cz)];
-      if (d > far) {
-        far = d;
-        exit = room;
+    let exit = this.rooms.find((rm) => rm.den || rm.boss) || this.rooms[this.rooms.length - 1];
+    if (!exit.den && !exit.boss) {
+      let far = -1;
+      for (const room of this.rooms) {
+        const d = dist[this.idx(room.cx, room.cz)];
+        if (d > far) {
+          far = d;
+          exit = room;
+        }
       }
     }
     this.exitRoom = exit;
+    this.denRoom = this.rooms.find((rm) => rm.den) || null;
 
     // decoration + gameplay content
     this.spawns = [];
@@ -122,7 +156,7 @@ export class Dungeon {
   placeProps() {
     this.props = [];
     const r = this.rng;
-    const weights = PROP_WEIGHTS[this.theme.id];
+    const weights = this.theme.props || PROP_WEIGHTS[this.theme.style];
     const reach = () => {
       const d = this.bfs(this.startRoom.cx, this.startRoom.cz);
       let n = 0;
@@ -191,9 +225,10 @@ export class Dungeon {
     let x = a.cx;
     let z = a.cz;
     const horizontalFirst = r.chance(0.5);
+    // corridors are 3 tiles (6 m) wide, centred on the rooms' central cross
     const carve = (cx, cz) => {
-      for (let dz = 0; dz < 2; dz++)
-        for (let dx = 0; dx < 2; dx++) {
+      for (let dz = -1; dz <= 1; dz++)
+        for (let dx = -1; dx <= 1; dx++) {
           const tx = cx + dx;
           const tz = cz + dz;
           if (tx > 0 && tz > 0 && tx < this.w - 1 && tz < this.h - 1 && this.get(tx, tz) === TILE.WALL)
@@ -226,6 +261,17 @@ export class Dungeon {
     const r = this.rng;
     // keep the central cross clear so corridors always connect through the room
     const clearOfCross = (x, z) => Math.abs(x - room.cx) > 1 && Math.abs(z - room.cz) > 1 && Math.abs(x + 1 - room.cx) > 1 && Math.abs(z + 1 - room.cz) > 1;
+    if (room.den) {
+      // the den: four great pillars, open floor for the fight
+      for (const [ox, oz] of [
+        [3, 3],
+        [room.w - 4, 3],
+        [3, room.h - 4],
+        [room.w - 4, room.h - 4],
+      ])
+        this.set(room.x + ox, room.z + oz, TILE.PILLAR);
+      return;
+    }
     if (room.boss) {
       // arena pillars
       for (const [ox, oz] of [
@@ -273,7 +319,7 @@ export class Dungeon {
   // A feature that would wall off a doorway or corridor is undone (see tryRaise).
   raisePlatforms(room) {
     const r = this.rng;
-    if (room === this.startRoom || room.boss || !r.chance(0.85)) return;
+    if (room === this.startRoom || room.boss || room.den || !r.chance(0.85)) return;
     const big = room.w >= 8 && room.h >= 8;
     const roll = r.next();
     let made = false;
@@ -451,7 +497,7 @@ export class Dungeon {
   // Bigger parties get more monsters: +40% per extra player.
   addPartySpawns(party, seed) {
     const r = makeRng((seed ^ 0x5bd1e995) >>> 0);
-    const pool = enemyPoolForFloor(this.floor);
+    const pool = enemyPoolForFloor(this.floor, this.theme);
     for (const room of this.rooms) {
       if (!room.spawnCount) continue;
       const extra = Math.round(room.spawnCount * 0.4 * (party - 1));
@@ -462,11 +508,20 @@ export class Dungeon {
   placeContent() {
     const r = this.rng;
     const f = this.floor;
-    const pool = enemyPoolForFloor(f);
+    const pool = enemyPoolForFloor(f, this.theme);
     for (const room of this.rooms) {
       if (room === this.startRoom) continue;
       if (room.boss) {
         this.spawns.push({ type: 'boss', ...this.worldCenter(room), elite: false });
+        continue;
+      }
+      if (room.den) {
+        // the den's lord (killing it opens the portal) and a few of its guards
+        const c = this.worldCenter(room);
+        this.spawns.push({ type: denBossForFloor(f), x: c.x, z: c.z + 3 * T, elite: false, den: true });
+        const guards = 2 + Math.min(2, Math.floor(f / 4));
+        room.spawnCount = guards;
+        for (let i = 0; i < guards; i++) this.spawns.push({ ...this.rollSpawn(r, room, pool), dormant: false });
         continue;
       }
       const area = room.w * room.h;
@@ -477,7 +532,7 @@ export class Dungeon {
       const pots = r.int(0, 3);
       for (let i = 0; i < pots; i++) this.pots.push(this.randomFloorIn(room));
     }
-    const chestRooms = this.rooms.filter((rm) => rm !== this.startRoom && !rm.boss);
+    const chestRooms = this.rooms.filter((rm) => rm !== this.startRoom && !rm.boss && !rm.den);
     const nChests = this.isBoss ? 0 : r.int(1, 2);
     for (let i = 0; i < nChests && chestRooms.length; i++) {
       const room = chestRooms.splice(r.int(0, chestRooms.length - 1), 1)[0];
