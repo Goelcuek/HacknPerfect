@@ -501,7 +501,7 @@ export class Enemy {
       if (this.state === 'windup' || this.state === 'bosswind') this.state = 'recover';
       this.heading += Math.sin(this.animT * 1.7) * dt * 2;
       const sp = def.speed * 0.35;
-      dg.move(this, Math.sin(this.heading) * sp * dt, Math.cos(this.heading) * sp * dt, false);
+      this.walk(dg, Math.sin(this.heading) * sp * dt, Math.cos(this.heading) * sp * dt);
       this.speedNow = sp;
       this.render(dt);
       return;
@@ -613,10 +613,22 @@ export class Enemy {
     }
 
     if (moveSpeed > 0) {
-      dg.move(this, mvx * moveSpeed * dt, mvz * moveSpeed * dt, false);
+      this.walk(dg, mvx * moveSpeed * dt, mvz * moveSpeed * dt);
       this.speedNow = moveSpeed * Math.min(1, Math.hypot(mvx, mvz));
     }
     this.render(dt);
+  }
+
+  // Voluntary movement: never step off a ledge (archers backing away would lose the
+  // high ground). Knockback still can push a monster off.
+  walk(dg, dx, dz) {
+    const len = Math.hypot(dx, dz);
+    if (len < 1e-6) return;
+    const ahead = this.radius + 0.35;
+    const fx = this.x + (dx / len) * ahead;
+    const fz = this.z + (dz / len) * ahead;
+    if (!dg.solidAt(fx, fz) && dg.floorAt(fx, fz) < (this.groundY || 0) - 0.6) return;
+    dg.move(this, dx, dz, false);
   }
 
   turnTo(h, dt, rate) {
@@ -690,7 +702,7 @@ export class Enemy {
 
   // Vertical speed for a shot from height y to reach the target's chest (0 on the same level).
   aimVy(p, y, speed) {
-    const dy = (p.y || 0) + 1.0 - y;
+    const dy = (p.y || 0) + 1.3 - y;
     if (Math.abs(dy) < 0.6) return 0;
     const d = Math.max(1, Math.hypot(p.x - this.x, p.z - this.z));
     return Math.max(-14, Math.min(14, dy / (d / speed)));

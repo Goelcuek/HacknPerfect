@@ -50,9 +50,11 @@ game.scene.environmentIntensity = 0.28;
 const frameStats = {
   sum: 0,
   n: 0,
+  missed: 0,
   reset() {
     this.sum = 0;
     this.n = 0;
+    this.missed = 0;
   },
 };
 let bloom = null;
@@ -177,6 +179,7 @@ ui.bindMenus({
   salvage: () => game.salvageNearItem(),
   pause: () => game.pause(),
   quality: cycleQuality,
+  fps: () => setPerf(!perf.on),
 });
 // ---- multiplayer lobby
 game.net.onStatus = (msg) => {
@@ -223,6 +226,13 @@ loadAssets((f) => {
 })
   .then(() => {
     applyQuality(loadQuality());
+    let fps = /[?&]fps\b/.test(location.search);
+    try {
+      fps ||= localStorage.getItem('hacknperfect.fps') === '1';
+    } catch (_) {
+      /* storage unavailable */
+    }
+    setPerf(fps);
     toTitle();
     loadEl?.classList.add('done');
     setTimeout(() => loadEl?.remove(), 600);
@@ -261,16 +271,46 @@ document.addEventListener('pointerlockchange', () => {
   if (!document.pointerLockElement && game.state === 'play' && !input.isTouch) game.pause();
 });
 
-// Dynamic resolution: if frames average slower than ~48 fps for a second of play,
-// render at a lower resolution (down to 1 pixel per CSS pixel, or 0.75 on Low).
-function adaptResolution(ms) {
+// Frame pacing and dynamic resolution.
+//
+// The display's refresh interval is measured from requestAnimationFrame itself (a
+// low percentile of recent gaps, so slow frames don't skew it). Frames are drawn on
+// every Nth refresh, N = refresh rate / 60 rounded: 60 fps on 60/120/240 Hz, and an
+// even 45/72/55 fps on 90/144/165 Hz screens. Always the same number of refreshes
+// between frames, because uneven gaps (60 fps on a 90 Hz screen alternates 11 and
+// 22 ms) read as stutter.
+//
+// Dynamic resolution: when more than 1 frame in 12 misses its slot (or frames run
+// long on average), render at a lower resolution, 0.25 at a time, down to 0.75
+// pixels per CSS pixel.
+const gaps = [];
+let vsync = 1000 / 60;
+let lastRaf = performance.now();
+function measureRefresh(now) {
+  const g = now - lastRaf;
+  lastRaf = now;
+  if (g < 3 || g > 50) return;
+  gaps.push(g);
+  if (gaps.length > 60) gaps.shift();
+  if (gaps.length >= 20 && gaps.length % 10 === 0) {
+    const sorted = gaps.slice().sort((a, b) => a - b);
+    vsync = sorted[Math.floor(sorted.length * 0.2)];
+  }
+}
+const refreshesPerFrame = () => Math.max(1, Math.round(1000 / 60 / vsync));
+
+let settleT = 0;
+function adaptResolution(ms, budget) {
   if (game.state !== 'play' || document.hidden || ms > 250) return frameStats.reset();
+  if (settleT > 0) return settleT--;
   frameStats.sum += ms;
-  if (++frameStats.n < 60) return;
+  if (ms > budget * 1.5) frameStats.missed++;
+  if (++frameStats.n < 96) return;
   const avg = frameStats.sum / frameStats.n;
+  const missed = frameStats.missed;
   frameStats.reset();
-  const floor = game.quality === 'low' ? 0.75 : Math.min(1, maxPixelRatio);
-  if (avg > 21 && pixelRatio > floor) {
+  const floor = Math.min(0.75, maxPixelRatio);
+  if ((avg > budget * 1.2 || missed >= 8) && pixelRatio > floor + 0.01) {
     pixelRatio = Math.max(floor, pixelRatio - 0.25);
     const w = window.innerWidth;
     const h = window.innerHeight;
@@ -280,25 +320,75 @@ function adaptResolution(ms) {
       game.composer.setPixelRatio(pixelRatio);
       game.composer.setSize(w, h);
     }
+    settleT = 60; // resizing the buffers costs a frame or two: don't count those
   }
 }
 
-// Capped at 60 fps: on 90/120/144 Hz screens, skip display refreshes so that a frame
-// is drawn every 1/60 s on average (keeping the cadence instead of just enforcing a
-// minimum gap, which would fall to 48 fps at 144 Hz). Saves battery and heat.
-const FRAME_MS = 1000 / 60;
+// Optional FPS meter (Graphics menu → "FPS" or ?fps): frame rate, worst frame and
+// hitches in the last 2 s, a frame-time graph, resolution scale and refresh rate.
+const perf = { on: false, ms: new Float32Array(120), i: 0, el: null, t: 0 };
+function setPerf(on) {
+  perf.on = on;
+  try {
+    localStorage.setItem('hacknperfect.fps', on ? '1' : '0');
+  } catch (_) {
+    /* storage unavailable */
+  }
+  ui.setFpsLabel?.(on);
+  if (on && !perf.el) {
+    perf.el = document.createElement('canvas');
+    perf.el.id = 'perfMeter';
+    perf.el.width = 240;
+    perf.el.height = 64;
+    document.body.appendChild(perf.el);
+  }
+  if (perf.el) perf.el.style.display = on ? 'block' : 'none';
+}
+function drawPerf(ms, budget) {
+  perf.ms[perf.i++ % perf.ms.length] = ms;
+  if (++perf.t % 10) return;
+  const c = perf.el.getContext('2d');
+  const n = Math.min(perf.i, perf.ms.length);
+  let sum = 0;
+  let worst = 0;
+  let hitches = 0;
+  for (let k = 0; k < n; k++) {
+    const v = perf.ms[k];
+    sum += v;
+    worst = Math.max(worst, v);
+    if (v > budget * 1.5) hitches++;
+  }
+  c.clearRect(0, 0, 240, 64);
+  c.fillStyle = 'rgba(0,0,0,0.6)';
+  c.fillRect(0, 0, 240, 64);
+  for (let k = 0; k < perf.ms.length; k++) {
+    const v = perf.ms[(perf.i + k) % perf.ms.length];
+    c.fillStyle = v > budget * 1.5 ? '#ff5050' : v > budget * 1.15 ? '#ffc040' : '#50e070';
+    const h = Math.min(40, (v / 50) * 40);
+    c.fillRect(k * 2, 64 - h, 2, h);
+  }
+  c.fillStyle = '#fff';
+  c.font = '11px monospace';
+  c.fillText(`${(1000 / (sum / n)).toFixed(0)} fps  worst ${worst.toFixed(0)} ms  hitches ${hitches}`, 4, 12);
+  c.fillText(`${Math.round(1000 / vsync)} Hz ÷${refreshesPerFrame()}  res ${pixelRatio.toFixed(2)}x  ${game.quality}`, 4, 24);
+}
+
 let last = performance.now();
 let lastDraw = last;
 function frame(now) {
   requestAnimationFrame(frame);
-  const since = now - lastDraw;
-  if (since < FRAME_MS - 1.5) return;
-  lastDraw = now - (since % FRAME_MS > FRAME_MS - 1.5 ? 0 : since % FRAME_MS);
+  measureRefresh(now);
+  const every = refreshesPerFrame();
+  // draw on every Nth refresh (half a refresh of slack for timestamp jitter)
+  if (now - lastDraw < every * vsync - vsync * 0.5) return;
+  lastDraw = now;
   const ms = now - last;
   const dt = Math.min(0.05, ms / 1000);
   last = now;
   if (window.__manual) return;
-  adaptResolution(ms);
+  const budget = every * vsync;
+  adaptResolution(ms, budget);
+  if (perf.on) drawPerf(ms, budget);
   step(dt);
   if (game.player) game.render();
 }

@@ -901,7 +901,8 @@ export class Game {
     const e = this.findTarget(x, z, heading, 30, 0.22);
     if (!e) return 0;
     const d = Math.max(1, Math.hypot(e.x - x, e.z - z));
-    const dy = e.y - (e.def.hover || 0) + e.height * 0.5 - y;
+    // upper body: a flatter arc to the chest can clip the edge of the ledge it stands on
+    const dy = e.y - (e.def.hover || 0) + e.height * 0.7 - y;
     return Math.abs(dy) < 0.5 ? 0 : clamp(dy / (d / speed), -14, 14);
   }
 

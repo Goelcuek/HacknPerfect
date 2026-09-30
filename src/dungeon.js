@@ -266,22 +266,118 @@ export class Dungeon {
     }
   }
 
-  // Raised platforms in a room's corners, each reached by a flight of stairs. They
-  // stay clear of the room's central cross, so corridors always arrive at ground level.
+  // Verticality: most rooms get raised floor, reached by flights of stairs:
+  //  - a balcony along a whole wall, with stairs coming down into the room,
+  //  - a dais in the middle of a big room, with stairs on all four sides,
+  //  - platforms tucked into corners.
+  // A feature that would wall off a doorway or corridor is undone (see tryRaise).
   raisePlatforms(room) {
     const r = this.rng;
-    if (room === this.startRoom || room.boss || !r.chance(0.65)) return;
+    if (room === this.startRoom || room.boss || !r.chance(0.85)) return;
+    const big = room.w >= 8 && room.h >= 8;
+    const roll = r.next();
+    let made = false;
+    if (big && room !== this.exitRoom && roll < 0.35) made = this.raiseDais(room);
+    else if (roll < 0.75) made = this.raiseBalcony(room);
+    if (!made || (big && r.chance(0.5))) this.raiseCorners(room, made ? 1 : big && r.chance(0.5) ? 2 : 1);
+  }
+
+  // Raise rect (x0..x1, z0..z1) to height top and lay the given stairs
+  // ([x, z, base, dir]); kept only if every tile that was reachable still is.
+  tryRaise(room, x0, x1, z0, z1, top, stairs) {
+    const inRoom = (x, z) => x >= room.x && x < room.x + room.w && z >= room.z && z < room.z + room.h;
+    for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) if (!inRoom(x, z) || !this.flatGround(x, z)) return false;
+    for (const [x, z] of stairs) {
+      const inside = x >= x0 && x <= x1 && z >= z0 && z <= z1;
+      if (!inRoom(x, z) || (!inside && !this.flatGround(x, z))) return false;
+    }
+    const before = this.reachCount();
+    for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) this.elev[this.idx(x, z)] = top;
+    for (const [x, z, base, dir] of stairs) {
+      this.elev[this.idx(x, z)] = base;
+      this.stair[this.idx(x, z)] = dir;
+    }
+    if (this.reachCount() < before) {
+      const clear = (x, z) => {
+        this.elev[this.idx(x, z)] = 0;
+        this.stair[this.idx(x, z)] = 0;
+      };
+      for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) clear(x, z);
+      for (const [x, z] of stairs) clear(x, z);
+      return false;
+    }
+    (room.platforms ||= []).push({ x0, x1, z0, z1, top });
+    return true;
+  }
+
+  // A stair code climbing toward (dx, dz).
+  static stairCode(dx, dz) {
+    return dx > 0 ? 1 : dx < 0 ? 2 : dz > 0 ? 3 : 4;
+  }
+
+  // A balcony 2-3 tiles deep along one wall, 1 or 2 steps up, with a flight of
+  // stairs somewhere along its edge coming down into the room.
+  raiseBalcony(room) {
+    const r = this.rng;
+    for (let tries = 0; tries < 4; tries++) {
+      const side = r.int(0, 3); // wall at -z, +z, -x, +x
+      const alongX = side < 2;
+      const along = alongX ? room.w : room.h;
+      const across = alongX ? room.h : room.w;
+      if (along < 5 || across < 7) continue;
+      const depth = across >= 10 && r.chance(0.5) ? 3 : 2;
+      const steps = across >= 8 && r.chance(0.6) ? 2 : 1;
+      // inward direction (from the wall into the room)
+      const [ix, iz] = [[0, 1], [0, -1], [1, 0], [-1, 0]][side];
+      let x0 = room.x;
+      let x1 = room.x + room.w - 1;
+      let z0 = room.z;
+      let z1 = room.z + room.h - 1;
+      if (side === 0) z1 = room.z + depth - 1;
+      if (side === 1) z0 = room.z + room.h - depth;
+      if (side === 2) x1 = room.x + depth - 1;
+      if (side === 3) x0 = room.x + room.w - depth;
+      // stairs: from the balcony's inner edge into the room, climbing back toward it
+      const t = r.int(1, along - 2);
+      const ex = alongX ? room.x + t : side === 2 ? x1 : x0;
+      const ez = alongX ? (side === 0 ? z1 : z0) : room.z + t;
+      const dir = Dungeon.stairCode(-ix, -iz);
+      const stairs = [];
+      for (let k = 0; k < steps; k++) stairs.push([ex + ix * (k + 1), ez + iz * (k + 1), (steps - 1 - k) * STEP_H, dir]);
+      if (this.tryRaise(room, x0, x1, z0, z1, steps * STEP_H, stairs)) return true;
+    }
+    return false;
+  }
+
+  // A dais filling the middle of a big room, one step up, with stairs on the
+  // room's cross so the way through the room stays open.
+  raiseDais(room) {
+    const x0 = room.x + 2;
+    const x1 = room.x + room.w - 3;
+    const z0 = room.z + 2;
+    const z1 = room.z + room.h - 3;
+    const stairs = [
+      [room.cx, z0, 0, 3],
+      [room.cx, z1, 0, 4],
+      [x0, room.cz, 0, 1],
+      [x1, room.cz, 0, 2],
+    ];
+    return this.tryRaise(room, x0, x1, z0, z1, STEP_H, stairs);
+  }
+
+  // Platforms tucked into the room's corners (clear of the central cross), with
+  // their stairs at the corner nearest the room centre.
+  raiseCorners(room, want) {
+    const r = this.rng;
     const corners = [
       [-1, -1],
       [1, -1],
       [-1, 1],
       [1, 1],
     ];
-    const want = room.w * room.h >= 70 && r.chance(0.5) ? 2 : 1;
     let made = 0;
     for (let k = 0; k < 4 && made < want; k++) {
       const [sx, sz] = corners.splice(r.int(0, corners.length - 1), 1)[0];
-      // the quadrant between the corner walls and the cross
       const x0 = sx < 0 ? room.x : room.cx + 2;
       const x1 = sx < 0 ? room.cx - 2 : room.x + room.w - 1;
       const z0 = sz < 0 ? room.z : room.cz + 2;
@@ -289,40 +385,17 @@ export class Dungeon {
       const w = x1 - x0 + 1;
       const d = z1 - z0 + 1;
       if (w < 2 || d < 2) continue;
-      // stairs run from the platform's inner edge toward the wall, along x or z
       const alongZ = w < 3 ? true : d < 3 ? false : r.chance(0.5);
       const depth = alongZ ? d : w;
       const steps = depth >= 4 && r.chance(0.55) ? 2 : 1;
       if (depth < steps + 1) continue;
-      let clear = true;
-      for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) if (this.get(x, z) !== TILE.FLOOR) clear = false;
-      if (!clear) continue;
-      const reachBefore = this.reachCount();
-      const top = steps * STEP_H;
-      for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) this.elev[this.idx(x, z)] = top;
-      // the platform's inner corner (nearest the room centre) holds the stairs
       const ix = sx < 0 ? x1 : x0;
       const iz = sz < 0 ? z1 : z0;
-      for (let i = 0; i < steps; i++) {
-        // flight i climbs from i * STEP_H, i tiles in from the inner edge
-        const tx = alongZ ? ix : ix + sx * i;
-        const tz = alongZ ? iz + sz * i : iz;
-        const dir = alongZ ? (sz < 0 ? 4 : 3) : sx < 0 ? 2 : 1;
-        this.elev[this.idx(tx, tz)] = i * STEP_H;
-        this.stair[this.idx(tx, tz)] = dir;
-      }
-      // a corridor arriving through this corner would be walled off: undo it
-      if (this.reachCount() < reachBefore) {
-        for (let z = z0; z <= z1; z++)
-          for (let x = x0; x <= x1; x++) {
-            this.elev[this.idx(x, z)] = 0;
-            this.stair[this.idx(x, z)] = 0;
-          }
-        continue;
-      }
-      room.platforms = room.platforms || [];
-      room.platforms.push({ x0, x1, z0, z1, top });
-      made++;
+      const dir = alongZ ? (sz < 0 ? 4 : 3) : sx < 0 ? 2 : 1;
+      const stairs = [];
+      // flight i climbs from i * STEP_H, i tiles in from the inner edge
+      for (let i = 0; i < steps; i++) stairs.push([alongZ ? ix : ix + sx * i, alongZ ? iz + sz * i : iz, i * STEP_H, dir]);
+      if (this.tryRaise(room, x0, x1, z0, z1, steps * STEP_H, stairs)) made++;
     }
   }
 

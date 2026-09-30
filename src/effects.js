@@ -32,6 +32,10 @@ export class Effects {
 
     this.transients = []; // meshes with update(dt) -> alive
     this.numbers = [];
+    // recycled particle objects and damage-number elements: effects fire constantly in
+    // a fight, and fresh garbage for every spark means GC pauses (stutter) on phones
+    this.freeParticles = [];
+    this.freeNumbers = [];
     this._v = new THREE.Vector3();
     this.groundAt = () => 0; // floor height at (x, z), set by the game
   }
@@ -42,37 +46,43 @@ export class Effects {
     return y < 0.35 ? this.groundAt(x, z) + y : y;
   }
 
+  // A particle from the pool (null when the budget is used up: skip it).
+  particle(x, y, z, vx, vy, vz, life, max, size, color, g, floor, grow = false) {
+    if (this.particles.length >= MAX_PARTICLES) return null;
+    const p = this.freeParticles.pop() || {};
+    p.x = x;
+    p.y = y;
+    p.z = z;
+    p.vx = vx;
+    p.vy = vy;
+    p.vz = vz;
+    p.life = life;
+    p.max = max;
+    p.size = size;
+    p.color = color;
+    p.g = g;
+    p.rot = Math.random() * 6;
+    p.floor = floor;
+    p.grow = grow;
+    this.particles.push(p);
+    return p;
+  }
+
   burst(x, y, z, color, n = 10, speed = 5, size = 0.15, life = 0.5, gravity = 12) {
     y = this.gy(x, y, z);
     const floor = this.groundAt(x, z);
     for (let i = 0; i < n; i++) {
-      if (this.particles.length >= MAX_PARTICLES) this.particles.shift();
       const a = Math.random() * Math.PI * 2;
       const u = Math.random() * 2 - 1;
       const s = speed * (0.4 + Math.random() * 0.6);
       const k = Math.sqrt(1 - u * u);
-      this.particles.push({
-        x,
-        y,
-        z,
-        vx: Math.cos(a) * k * s,
-        vy: Math.abs(u) * s + speed * 0.3,
-        vz: Math.sin(a) * k * s,
-        life: life * (0.6 + Math.random() * 0.4),
-        max: life,
-        size: size * (0.6 + Math.random() * 0.8),
-        color,
-        g: gravity,
-        rot: Math.random() * 6,
-        floor,
-      });
+      this.particle(x, y, z, Math.cos(a) * k * s, Math.abs(u) * s + speed * 0.3, Math.sin(a) * k * s, life * (0.6 + Math.random() * 0.4), life, size * (0.6 + Math.random() * 0.8), color, gravity, floor);
     }
   }
 
   // Trail puff that doesn't move much (dash trails, fire trails).
   puff(x, y, z, color, size = 0.3, life = 0.4) {
-    if (this.particles.length >= MAX_PARTICLES) this.particles.shift();
-    this.particles.push({ x, y: this.gy(x, y, z), z, vx: 0, vy: 0.8, vz: 0, life, max: life, size, color, g: 0, rot: Math.random() * 6, floor: -99 });
+    this.particle(x, this.gy(x, y, z), z, 0, 0.8, 0, life, life, size, color, 0, -99);
   }
 
   ring(x, z, radius, color, duration = 0.35, y = 0.08, thickness = 0.25) {
@@ -261,10 +271,10 @@ export class Effects {
   }
 
   smoke(x, z) {
-    if (this.particles.length >= MAX_PARTICLES) this.particles.shift();
     const life = 1.2 + Math.random() * 0.8;
     const v = 0x70 + Math.floor(Math.random() * 0x30);
-    this.particles.push({ x, y: this.groundAt(x, z) + 0.4 + Math.random() * 1.2, z, vx: (Math.random() - 0.5) * 1.5, vy: 0.4, vz: (Math.random() - 0.5) * 1.5, life, max: life, size: 0.9 + Math.random() * 0.7, color: (v << 16) | (v << 8) | (v + 10), g: 0, rot: Math.random() * 6, grow: true });
+    const floor = this.groundAt(x, z);
+    this.particle(x, floor + 0.4 + Math.random() * 1.2, z, (Math.random() - 0.5) * 1.5, 0.4, (Math.random() - 0.5) * 1.5, life, life, 0.9 + Math.random() * 0.7, (v << 16) | (v << 8) | (v + 10), 0, floor, true);
   }
 
   // Jagged bolt through a list of [x,y,z] points.
@@ -312,15 +322,21 @@ export class Effects {
   }
 
   damageNumber(x, y, z, text, cls = '') {
-    const el = document.createElement('div');
+    if (this.numbers.length >= 40) this.releaseNumber(this.numbers.shift());
+    let el = this.freeNumbers.pop();
+    if (!el) {
+      el = document.createElement('div');
+      this.container.appendChild(el);
+    }
     el.className = 'dmg ' + cls;
     el.textContent = text;
-    this.container.appendChild(el);
+    el.style.display = '';
     this.numbers.push({ el, x: x + (Math.random() - 0.5) * 0.5, y, z: z + (Math.random() - 0.5) * 0.5, t: 0 });
-    if (this.numbers.length > 40) {
-      const old = this.numbers.shift();
-      old.el.remove();
-    }
+  }
+
+  releaseNumber(d) {
+    d.el.style.display = 'none';
+    this.freeNumbers.push(d.el);
   }
 
   shake(amount) {
@@ -335,7 +351,10 @@ export class Effects {
       const p = ps[i];
       p.life -= dt;
       if (p.life <= 0) {
-        ps.splice(i, 1);
+        // swap-remove (order doesn't matter) and recycle
+        ps[i] = ps[ps.length - 1];
+        ps.pop();
+        this.freeParticles.push(p);
         continue;
       }
       p.vy -= p.g * dt;
@@ -365,8 +384,17 @@ export class Effects {
       n++;
     }
     this.pmesh.count = n;
-    this.pmesh.instanceMatrix.needsUpdate = true;
-    if (this.pmesh.instanceColor) this.pmesh.instanceColor.needsUpdate = true;
+    // upload only the live part of the instance buffers
+    const im = this.pmesh.instanceMatrix;
+    im.clearUpdateRanges();
+    im.addUpdateRange(0, Math.max(1, n) * 16);
+    im.needsUpdate = true;
+    const ic = this.pmesh.instanceColor;
+    if (ic) {
+      ic.clearUpdateRanges();
+      ic.addUpdateRange(0, Math.max(1, n) * 3);
+      ic.needsUpdate = true;
+    }
 
     // transient meshes
     for (let i = this.transients.length - 1; i >= 0; i--) {
@@ -385,7 +413,7 @@ export class Effects {
       const d = this.numbers[i];
       d.t += dt;
       if (d.t > 0.8) {
-        d.el.remove();
+        this.releaseNumber(d);
         this.numbers.splice(i, 1);
         continue;
       }
@@ -410,8 +438,9 @@ export class Effects {
       this.disposeTransient(t);
     }
     this.transients.length = 0;
+    for (const p of this.particles) this.freeParticles.push(p);
     this.particles.length = 0;
-    for (const d of this.numbers) d.el.remove();
+    for (const d of this.numbers) this.releaseNumber(d);
     this.numbers.length = 0;
     this.pmesh.count = 0;
   }

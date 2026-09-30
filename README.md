@@ -156,8 +156,9 @@ chains dashes between targets.
 - **Chests, barrels and crates.** Chests open when you walk up to them; barrels and crates burst
   into gold and potions when hit. From floor 2 some chests are **Mimics** that lunge when you get
   close (they drop great loot).
-- **Platforms and stairs.** Many rooms have raised platforms in their corners, one jump (1.2 m)
-  or a double jump (2.4 m) high, each with a flight of stairs. Skeleton archers and mages like to
+- **Platforms and stairs.** Most rooms have raised floor, one jump (1.2 m) or a double jump
+  (2.4 m) high, reached by flights of stairs: balconies running along a whole wall, a dais in the
+  middle of big rooms (stairs on all four sides), and platforms tucked into corners. Skeleton archers and mages like to
   shoot from up there; melee skeletons have to take the stairs, and nothing climbs a ledge but
   you. Shots aim up or down at their target, melee and ground attacks only reach the level they
   land on, and shockwaves don't travel up or down a ledge. Getting knocked off a platform drops
@@ -209,14 +210,20 @@ Use **Graphics** on the title or pause screen to switch quality:
 | Medium  | Bloom, 4x MSAA, ambient particles        | Phones/tablets |
 | High    | Bloom, 4x MSAA, shadows, full detail     | Desktop        |
 
-Every setting also lowers its render resolution automatically (in 0.25 steps) when the game
-averages under ~48 fps, so a slow device drops a little sharpness instead of frame rate. The
+Every setting also lowers its render resolution automatically (in 0.25 steps) when frames
+start missing their slot, so a slow device drops a little sharpness instead of frame rate. The
 High shadows are snapped to whole shadow-map texels, so their edges don't crawl while you walk.
 
 Performance notes:
 
-- **60 fps cap.** On 90/120/144 Hz screens the game skips refreshes to draw 60 frames a second
-  (less heat and battery; the game is tuned for 60).
+- **60 fps cap with even pacing.** The game measures the screen's refresh rate and draws on
+  every Nth refresh: 60 fps on 60/120/240 Hz screens, an even 45/72/55 fps on 90/144/165 Hz
+  ones (60 fps there would mean alternating short and long frames, which looks like stutter).
+- **FPS meter.** *FPS: on* on the title screen or in the pause menu (or `?fps` in the URL) shows
+  the frame rate, the worst frame and hitches of the last 2 s, a frame-time graph, the screen's
+  refresh rate and the current resolution scale.
+- **Dynamic resolution** reacts to missed frames (more than 1 in 12), not just a low average,
+  and can go down to 0.75× on every setting.
 - **No first-hit hitch.** Shaders compile, and Metal/Vulkan build their pipelines, the first time
   a material is drawn. On each floor load the game keeps one hidden mesh per material setup that
   effects, projectiles, zones, loot and enemy health bars use, compiles them all and draws them
@@ -225,7 +232,8 @@ Performance notes:
   so off-screen parts are skipped: about half the draw calls and a third fewer triangles.
   Medium uses 2 real torch lights (High 4, Low 1); every torch still glows.
 - **Think less.** Monsters out of sight and far from every player update at 20 Hz, and the HUD
-  only touches the page when a value changes.
+  only touches the page when a value changes. Particles and damage numbers are recycled instead
+  of created per hit (less garbage collection, so fewer hitches).
 
 ## Code layout
 

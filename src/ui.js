@@ -499,6 +499,10 @@ export class UI {
     $('muteBtn').textContent = `Sound: ${isMuted() ? 'off' : 'on'}`;
   }
 
+  setFpsLabel(on) {
+    for (const id of ['fpsBtn', 'fpsBtn2']) $(id).textContent = `FPS: ${on ? 'on' : 'off'}`;
+  }
+
   setQualityLabel(q) {
     const label = `Graphics: ${q[0].toUpperCase()}${q.slice(1)}`;
     $('qualityBtn').textContent = label;
@@ -629,5 +633,7 @@ export class UI {
     $('pauseBtn').onclick = handlers.pause;
     $('qualityBtn').onclick = handlers.quality;
     $('qualityBtn2').onclick = handlers.quality;
+    $('fpsBtn').onclick = handlers.fps;
+    $('fpsBtn2').onclick = handlers.fps;
   }
 }

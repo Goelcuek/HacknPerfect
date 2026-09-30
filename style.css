@@ -1430,3 +1430,21 @@ body:not(.touch) .pin-pad {
   opacity: 0.8;
   margin-top: 2px;
 }
+
+/* FPS meter (Graphics menu → FPS) */
+#perfMeter {
+  position: fixed;
+  top: calc(6px + var(--safe-t));
+  left: 50%;
+  transform: translateX(-50%);
+  width: 240px;
+  height: 64px;
+  z-index: 50;
+  pointer-events: none;
+  border-radius: 6px;
+}
+.small-row {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
