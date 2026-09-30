@@ -178,6 +178,8 @@ ui.bindMenus({
   },
   equip: () => game.equipNearItem(),
   salvage: () => game.salvageNearItem(),
+  portalGo: () => game.enterPortal(),
+  portalStay: () => game.declinePortal(),
   pause: () => game.pause(),
   quality: cycleQuality,
   fps: () => setPerf(!perf.on),

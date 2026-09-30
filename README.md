@@ -46,8 +46,8 @@ Co-op rules:
   when out of range), matching the colours in the party list and on their name tags.
 - **Revive:** a downed player gets back up after a teammate stands next to them for 2.5 seconds.
   The run ends only when everyone is down.
-- **Portal:** anyone stepping into the open portal takes the whole party to the next floor
-  (everyone gets their own reward screen).
+- **Portal:** anyone who steps into the open portal and confirms takes the whole party to the next
+  floor (everyone gets their own reward screen).
 - **No pause:** the dungeon keeps running while you are in a menu (you can't be hit meanwhile).
 
 Notes: the host should keep the game in the foreground (browsers throttle background tabs, which
@@ -157,7 +157,9 @@ chains dashes between targets.
   (orb volleys and hexes that erupt under you), the **Death Knight** (shielded, charges), **The
   Butcher** (relentless charges) or the **Shade Matriarch** (blinks behind you). Below half health
   they learn more tricks (summoning, novas). Killing the lord opens the portal and leaves a rich
-  chest; the rest of the floor is optional. Every 5th floor is **The Bone King**'s throne. The
+  chest; the rest of the floor is optional. Stepping into the open portal asks before you go
+  (**Enter** / `F`, or **Not yet**) and lists any unopened chests and items still on the ground,
+  so you can't fall in before looting the room. Every 5th floor is **The Bone King**'s throne. The
   minimap marks enemies (red), elites (gold), bosses (purple), chests and loot; up on the map is
   the way the camera faces.
 - **Every floor is a different place.** Forgotten Crypt, Flooded Catacombs, Ember Halls, Bone

@@ -459,6 +459,24 @@ export class UI {
       .join('');
   }
 
+  // Standing in an open portal asks before going down; `info` is null to hide it.
+  setPortalCard(info) {
+    const key = info ? `${info.floor}|${info.chests}|${info.items}` : '';
+    if (key === this.portalShown) return;
+    this.portalShown = key;
+    const card = $('portalcard');
+    if (!info) {
+      card.classList.add('hidden');
+      return;
+    }
+    card.classList.remove('hidden');
+    $('portalHeader').textContent = `✦ Descend to floor ${info.floor}?`;
+    const left = [];
+    if (info.chests) left.push(`${info.chests} chest${info.chests > 1 ? 's' : ''} unopened`);
+    if (info.items) left.push(`${info.items} item${info.items > 1 ? 's' : ''} on the ground`);
+    $('portalInfo').innerHTML = left.length ? `<span class="warn">Left behind: ${left.join(' · ')}</span>` : 'Nothing left behind.';
+  }
+
   showPause(game) {
     this.show('pause');
     // multiplayer runs aren't saved; in solo, closing the game resumes later anyway
@@ -635,6 +653,8 @@ export class UI {
     };
     $('equipBtn').onclick = handlers.equip;
     $('salvageBtn').onclick = handlers.salvage;
+    $('portalGoBtn').onclick = handlers.portalGo;
+    $('portalStayBtn').onclick = handlers.portalStay;
     $('pauseBtn').onclick = handlers.pause;
     $('qualityBtn').onclick = handlers.quality;
     $('qualityBtn2').onclick = handlers.quality;

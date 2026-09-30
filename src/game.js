@@ -331,6 +331,8 @@ export class Game {
     this.floorSeed = seed ?? (Math.random() * 2 ** 31) | 0;
     this.nextSeed = null;
     this.enterSent = false;
+    this.portalAsk = this.portalDeclined = false;
+    this.ui.setPortalCard(null);
     const dg = new Dungeon(n, this.floorSeed, this.net.isHost ? this.net.partySize : 1);
     this.dungeon = dg;
     const levelGroup = dg.buildMeshes(this.quality);
@@ -642,6 +644,20 @@ export class Game {
     light.position.set(0, 1.8, 0);
     g.add(light);
     this.portal = { x, z, mesh: g, ring, ringMat, disc, discMat, light, runeMat, active: false };
+  }
+
+  portalInfo() {
+    return {
+      floor: this.floor + 1,
+      chests: this.chests.filter((c) => !c.open).length,
+      items: this.pickups.filter((k) => k.kind === 'item').length,
+    };
+  }
+
+  declinePortal() {
+    this.portalDeclined = true;
+    this.portalAsk = false;
+    this.ui.setPortalCard(null);
   }
 
   activatePortal(quiet = false) {
@@ -1466,8 +1482,11 @@ export class Game {
         this.nearItem = pk;
       }
     }
+    // the portal question takes the card slot (and F) while it's up
+    if (this.portalAsk) this.nearItem = null;
     this.ui.setItemCard(this.nearItem ? this.nearItem.item : null, this.nearItem ? p.equipment[this.nearItem.item.slot] : null);
-    if (input.pressed.interact && this.nearItem) this.equipNearItem();
+    if (input.pressed.interact && this.portalAsk) this.enterPortal();
+    else if (input.pressed.interact && this.nearItem) this.equipNearItem();
     this.saveT = (this.saveT ?? 2) - rawDt;
     if (this.saveT <= 0) {
       this.saveT = 2;
@@ -1823,8 +1842,13 @@ export class Game {
     if (pt.active) {
       pt.discMat.opacity = 0.55 + Math.sin(this.runTime * 4) * 0.2;
       if (Math.random() < 0.3) this.effects.puff(pt.x + (Math.random() - 0.5) * 2, 0.3, pt.z + (Math.random() - 0.5) * 2, 0xb18cff, 0.25, 0.8);
-      if (Math.hypot(p.x - pt.x, p.z - pt.z) < 1.6 && !p.dead) this.enterPortal();
     }
+    // Stepping into an open portal asks first (no more tumbling in before the room is
+    // looted). "Not yet" keeps it quiet until you step out and back in.
+    const inside = pt.active && !p.dead && this.state === 'play' && Math.hypot(p.x - pt.x, p.z - pt.z) < 1.6;
+    if (!inside) this.portalDeclined = false;
+    this.portalAsk = inside && !this.portalDeclined && !this.enterSent;
+    this.ui.setPortalCard(this.portalAsk ? this.portalInfo() : null);
   }
 
   updatePatches(dt) {
@@ -1887,6 +1911,8 @@ export class Game {
   // fromNet: the host acting on a client's request, or a client told to move on.
   enterPortal(fromNet = false) {
     const net = this.net;
+    this.portalAsk = false;
+    this.ui.setPortalCard(null);
     if (net.isClient && !fromNet) {
       // clients ask the host; everyone moves on together
       if (!this.enterSent) {

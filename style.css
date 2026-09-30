@@ -260,7 +260,8 @@ kbd {
 }
 
 /* item card */
-#itemcard {
+#itemcard,
+#portalcard {
   position: absolute;
   left: 50%;
   bottom: calc(80px + var(--safe-b));
@@ -379,7 +380,26 @@ kbd {
 body.touch #skillbar {
   display: none;
 }
-body.touch #itemcard {
+#portalcard {
+  border-color: #b18cff;
+  box-shadow: 0 0 18px rgba(177, 140, 255, 0.35);
+  text-align: center;
+}
+#portalHeader {
+  font-weight: 800;
+  font-size: 15px;
+  color: #d7c4ff;
+}
+#portalInfo {
+  margin: 4px 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+#portalInfo .warn {
+  color: #ffc94a;
+}
+body.touch #itemcard,
+body.touch #portalcard {
   bottom: auto;
   top: calc(64px + var(--safe-t));
 }
