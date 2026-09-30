@@ -20,16 +20,16 @@ export const SKILLS = {
     name: 'Leap Slam',
     icon: '🔨',
     cd: (lv) => 7 - 0.4 * (lv - 1),
-    desc: (lv) => `Leap onto a foe and smash the ground for ${pct(S(2.6, 0.5, lv))} damage in a ${S(3.4, 0.3, lv).toFixed(1)}m radius.${lv >= 3 ? ` Stuns for ${sec(0.6 + 0.2 * lv)}.` : ''}`,
+    desc: (lv) => `Leap onto a foe and smash the ground for ${pct(S(3, 0.55, lv))} damage in a ${S(3.4, 0.3, lv).toFixed(1)}m radius.${lv >= 3 ? ` Stuns for ${sec(0.6 + 0.2 * lv)}.` : ''}`,
     cast(p, lv, ctx) {
-      p.leapSlam(ctx, { dmg: S(2.6, 0.5, lv), radius: S(3.4, 0.3, lv), stun: lv >= 3 ? 0.6 + 0.2 * lv : 0 });
+      p.leapSlam(ctx, { dmg: S(3, 0.55, lv), radius: S(3.4, 0.3, lv), stun: lv >= 3 ? 0.6 + 0.2 * lv : 0 });
     },
   },
   whirl: {
     name: 'Whirlwind',
     icon: '🌀',
     cd: (lv) => 9 - 0.4 * (lv - 1),
-    desc: (lv) => `Spin for ${sec(S(1.2, 0.3, lv))}, hitting everything around you for ${pct(S(0.6, 0.12, lv))} five times a second.${lv >= 3 ? ' Pulls enemies in.' : ''}${lv >= 5 ? ' Move at full speed.' : ''}`,
+    desc: (lv) => `Spin for ${sec(S(1.2, 0.3, lv))}, hitting everything around you for ${pct(S(0.72, 0.14, lv))} five times a second.${lv >= 3 ? ' Pulls enemies in.' : ''}${lv >= 5 ? ' Move at full speed.' : ''}`,
     cast(p, lv) {
       const R = 2.9 * p.mods.reach;
       p.act({
@@ -53,7 +53,7 @@ export const SKILLS = {
               e.kx += (dx / d) * 6;
               e.kz += (dz / d) * 6;
             }
-            return { ...p.rollDamage(S(0.6, 0.12, lv), true), knock: lv >= 3 ? 0 : 2 };
+            return { ...p.rollDamage(S(0.72, 0.14, lv), true), knock: lv >= 3 ? 0 : 2 };
           });
         },
       });
@@ -89,7 +89,7 @@ export const SKILLS = {
             e.kx += hz * side * 8 + hx * 5;
             e.kz += -hx * side * 8 + hz * 5;
             g.effects.shake(0.2);
-            return { ...p.rollDamage(S(1.6, 0.3, lv), true), knock: 0 };
+            return { ...p.rollDamage(S(1.9, 0.35, lv), true), knock: 0 };
           });
         },
       });
@@ -132,13 +132,13 @@ export const SKILLS = {
     name: 'Earthsplitter',
     icon: '⛰️',
     cd: (lv) => 9 - 0.5 * (lv - 1),
-    desc: (lv) => `Split the ground ahead: ${S(5, 1, lv)} eruptions of ${pct(S(1.4, 0.25, lv))} damage that launch enemies.`,
+    desc: (lv) => `Split the ground ahead: ${S(3.8, 0.7, lv)} eruptions of ${pct(S(1.4, 0.25, lv))} damage that launch enemies.`,
     cast(p, lv, ctx) {
       p.aimAt(ctx, 10, 0.5);
       const g = p.game;
       const hx = Math.sin(p.heading);
       const hz = Math.cos(p.heading);
-      const n = S(5, 1, lv);
+      const n = S(3.8, 0.7, lv);
       const ox = p.x;
       const oz = p.z;
       p.act({ anim: 'overhead', dur: 0.45 });
@@ -163,7 +163,7 @@ export const SKILLS = {
     name: 'Multishot',
     icon: '🎯',
     cd: (lv) => 4.5 - 0.3 * (lv - 1),
-    desc: (lv) => `Fire a fan of ${3 + 2 * lv} arrows, each dealing ${pct(S(0.9, 0.12, lv))} damage.`,
+    desc: (lv) => `Fire a fan of ${3 + 2 * lv} arrows, each dealing ${pct(S(0.8, 0.1, lv))} damage.`,
     cast(p, lv, ctx) {
       p.aimAt(ctx, 16, 0.8, true);
       const n = 3 + 2 * lv;
@@ -171,7 +171,7 @@ export const SKILLS = {
       sfx.arrow();
       for (let i = 0; i < n; i++) {
         const off = (i - (n - 1) / 2) * (1.1 / (n - 1));
-        p.game.shoot({ from: p, heading: p.heading + off, speed: 30, life: 0.7, kind: 'arrow', dmg: () => p.rollDamage(S(0.9, 0.12, lv), true), knock: 3, pierce: p.buffMod('pierce') ? 1 : 0 });
+        p.game.shoot({ from: p, heading: p.heading + off, speed: 30, life: 0.7, kind: 'arrow', dmg: () => p.rollDamage(S(0.8, 0.1, lv), true), knock: 3, pierce: p.buffMod('pierce') ? 1 : 0 });
       }
     },
   },
@@ -300,8 +300,8 @@ export const SKILLS = {
   firebolt: {
     name: 'Fire Bolt',
     icon: '🔥',
-    cd: (lv) => 2.8 - 0.1 * (lv - 1),
-    desc: (lv) => `Hurl ${lv >= 5 ? 5 : lv >= 3 ? 3 : 1} homing fireball${lv >= 3 ? 's' : ''} that explode for ${pct(S(2.2, 0.35, lv))} damage and burn.`,
+    cd: (lv) => 3.4 - 0.1 * (lv - 1),
+    desc: (lv) => `Hurl ${lv >= 5 ? 5 : lv >= 3 ? 3 : 1} homing fireball${lv >= 3 ? 's' : ''} that explode for ${pct(S(1.9, 0.3, lv))} damage and burn.`,
     cast(p, lv, ctx) {
       const t = p.aimAt(ctx, 18, 0.9, true);
       const n = lv >= 5 ? 5 : lv >= 3 ? 3 : 1;
@@ -309,7 +309,7 @@ export const SKILLS = {
       sfx.fire();
       for (let i = 0; i < n; i++) {
         const off = n === 1 ? 0 : (i - (n - 1) / 2) * 0.22;
-        p.game.shoot({ from: p, heading: p.heading + off, speed: 22, life: 1.4, kind: 'fire', homing: t, explode: 2.4, dmg: () => p.rollDamage(S(2.2, 0.35, lv), true), knock: 5, onHit: (e) => e.status({ burn: [1.8, p.final.damage * 0.2 * p.final.skillMult] }) });
+        p.game.shoot({ from: p, heading: p.heading + off, speed: 22, life: 1.4, kind: 'fire', homing: t, explode: 2.4, dmg: () => p.rollDamage(S(1.9, 0.3, lv), true), knock: 5, onHit: (e) => e.status({ burn: [1.8, p.final.damage * 0.2 * p.final.skillMult] }) });
       }
     },
   },
@@ -317,7 +317,7 @@ export const SKILLS = {
     name: 'Frost Nova',
     icon: '❄',
     cd: (lv) => 10 - 0.5 * (lv - 1),
-    desc: (lv) => `Blast frost in ${S(5.5, 0.4, lv).toFixed(1)}m for ${pct(S(1.3, 0.25, lv))} damage, freezing enemies for ${sec(S(2, 0.4, lv))}.`,
+    desc: (lv) => `Blast frost in ${S(5.5, 0.4, lv).toFixed(1)}m for ${pct(S(0.95, 0.18, lv))} damage, freezing enemies for ${sec(S(2, 0.4, lv))}.`,
     cast(p, lv) {
       const g = p.game;
       const R = S(5.5, 0.4, lv);
@@ -328,7 +328,7 @@ export const SKILLS = {
       sfx.frost();
       g.hitEnemiesInRadius(p.x, p.z, R, (e) => {
         e.status({ freeze: S(2, 0.4, lv) });
-        return { ...p.rollDamage(S(1.3, 0.25, lv), true), knock: 3 };
+        return { ...p.rollDamage(S(0.95, 0.18, lv), true), knock: 3 };
       });
       p.act({ anim: 'slamcast', dur: 0.3 });
     },
@@ -354,7 +354,7 @@ export const SKILLS = {
       for (let i = 0; i < 3 + lv && cur; i++) {
         hit.add(cur);
         pts.push([cur.x, cur.y + cur.height * 0.6, cur.z]);
-        g.damageEnemy(cur, { ...p.rollDamage(S(1.6, 0.3, lv), true), knock: 2 }, p.x, p.z);
+        g.damageEnemy(cur, { ...p.rollDamage(S(1.15, 0.22, lv), true), knock: 2 }, p.x, p.z);
         cur.status({ stun: 0.25 });
         let next = null;
         let bd = 7;
@@ -375,7 +375,7 @@ export const SKILLS = {
     name: 'Meteor',
     icon: '☄️',
     cd: (lv) => 12 - 0.6 * (lv - 1),
-    desc: (lv) => `Call a meteor that lands after 0.9s for ${pct(S(5, 1, lv))} damage in ${S(4, 0.3, lv).toFixed(1)}m.${lv >= 3 ? ' Leaves burning ground.' : ''}`,
+    desc: (lv) => `Call a meteor that lands after 0.9s for ${pct(S(3.8, 0.7, lv))} damage in ${S(4, 0.3, lv).toFixed(1)}m.${lv >= 3 ? ' Leaves burning ground.' : ''}`,
     cast(p, lv, ctx) {
       const g = p.game;
       const t = p.aimAt(ctx, 16, 0.9, true);
@@ -397,7 +397,7 @@ export const SKILLS = {
         sfx.boom();
         g.hitEnemiesInRadius(x, z, R, (e) => {
           e.status({ burn: [2.5, p.final.damage * 0.3 * p.final.skillMult] });
-          return { ...p.rollDamage(S(5, 1, lv), true), knock: 10, launch: 8 };
+          return { ...p.rollDamage(S(3.8, 0.7, lv), true), knock: 10, launch: 8 };
         });
         if (lv >= 3) for (let i = 0; i < 6; i++) g.spawnFirePatch(x + (Math.random() - 0.5) * R, z + (Math.random() - 0.5) * R);
       });
@@ -588,7 +588,7 @@ export const SKILLS = {
     name: 'Cleave',
     icon: '🪓',
     cd: (lv) => 5 - 0.3 * (lv - 1),
-    desc: (lv) => `A huge sweeping blow: ${pct(S(2.2, 0.4, lv))} damage in a wide arc.${lv >= 3 ? ' Enemies bleed for 40% more over 3s.' : ''}${lv >= 5 ? ' Always crits wounded foes.' : ''}`,
+    desc: (lv) => `A huge sweeping blow: ${pct(S(2.5, 0.45, lv))} damage in a wide arc.${lv >= 3 ? ' Enemies bleed for 40% more over 3s.' : ''}${lv >= 5 ? ' Always crits wounded foes.' : ''}`,
     cast(p, lv, ctx) {
       p.aimAt(ctx, 4.5, 1.2);
       const g = p.game;
@@ -599,7 +599,7 @@ export const SKILLS = {
         g.effects.shake(0.3);
         sfx.slam();
         g.hitCone(p.x, p.z, p.heading, R, 4.2, (e) => {
-          const hit = p.rollDamage(S(2.2, 0.4, lv), true, lv >= 5 && e.hp < e.maxHp * 0.5);
+          const hit = p.rollDamage(S(2.5, 0.45, lv), true, lv >= 5 && e.hp < e.maxHp * 0.5);
           if (lv >= 3) e.status({ bleed: [3, (hit.amount * 0.4) / 8] });
           return { ...hit, knock: 6 };
         });

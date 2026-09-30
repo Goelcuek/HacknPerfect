@@ -35,14 +35,14 @@ const ATTACKS = {
     { dur: 0.38, hitAt: 0.5, mult: 1.6, arc: 2.8, range: 2.5, knock: 7, anim: 'crossSlash', clip: 'Dualwield_Melee_Attack_Chop', windup: 0.4 },
   ],
   bow: [
-    { dur: 0.42, hitAt: 0.62, mult: 1.0, ranged: 'arrow', anim: 'bowShot', clip: '2H_Ranged_Shoot', windup: 0.12, part: 'upper' },
-    { dur: 0.42, hitAt: 0.62, mult: 1.0, ranged: 'arrow', anim: 'bowShot', clip: '2H_Ranged_Shoot', windup: 0.12, part: 'upper' },
+    { dur: 0.34, hitAt: 0.62, mult: 1.0, ranged: 'arrow', anim: 'bowShot', clip: '2H_Ranged_Shoot', windup: 0.12, part: 'upper' },
+    { dur: 0.34, hitAt: 0.62, mult: 1.0, ranged: 'arrow', anim: 'bowShot', clip: '2H_Ranged_Shoot', windup: 0.12, part: 'upper' },
     { dur: 0.5, hitAt: 0.68, mult: 1.6, ranged: 'power', anim: 'bowShot', clip: '2H_Ranged_Shoot', windup: 0.12, part: 'upper' },
   ],
   staff: [
-    { dur: 0.36, hitAt: 0.45, mult: 0.95, ranged: 'missile', anim: 'staffR', clip: 'Spellcast_Shoot', windup: 0.1, part: 'upper' },
-    { dur: 0.36, hitAt: 0.45, mult: 0.95, ranged: 'missile', anim: 'staffL', clip: '1H_Ranged_Shoot', windup: 0.12, part: 'upper' },
-    { dur: 0.5, hitAt: 0.5, mult: 0.8, ranged: 'missile3', anim: 'staffBurst', clip: 'Spellcast_Raise', windup: 0.27 },
+    { dur: 0.34, hitAt: 0.45, mult: 1.0, ranged: 'missile', anim: 'staffR', clip: 'Spellcast_Shoot', windup: 0.1, part: 'upper' },
+    { dur: 0.34, hitAt: 0.45, mult: 1.0, ranged: 'missile', anim: 'staffL', clip: '1H_Ranged_Shoot', windup: 0.12, part: 'upper' },
+    { dur: 0.48, hitAt: 0.5, mult: 0.9, ranged: 'missile3', anim: 'staffBurst', clip: 'Spellcast_Raise', windup: 0.27 },
   ],
   axe: [
     { dur: 0.46, hitAt: 0.5, mult: 1.3, arc: 2.8, range: 2.8, knock: 6, anim: 'slashR', clip: '2H_Melee_Attack_Slice', windup: 0.35 },
@@ -644,7 +644,8 @@ export class Player {
     this.attack = { i, c, t: 0, dur, hit: false };
     if (c.ranged) {
       const pref = ctx.wish ?? ctx.camYaw;
-      const t = this.game.findTarget(this.x, this.z, pref, 20, 0.75);
+      // nothing ahead (e.g. backing away from a pack): shoot the nearest thing around
+      const t = this.game.findTarget(this.x, this.z, pref, 20, 0.75) || this.game.findTarget(this.x, this.z, pref, 12, Math.PI);
       this.attack.target = t;
       this.heading = t ? Math.atan2(t.x - this.x, t.z - this.z) : pref;
     } else {
@@ -670,13 +671,13 @@ export class Player {
         const power = c.ranged === 'power';
         sfx.arrow();
         const spread = this.buffMod('tripleShot') ? [-0.14, 0, 0.14] : [0];
-        for (const off of spread) game.shoot({ from: this, heading: this.heading + off, speed: power ? 38 : 32, life: 0.65, kind: power ? 'bigarrow' : 'arrow', dmg: () => this.rollDamage(c.mult), knock: power ? 6 : 3, pierce: pierce + (power ? 1 : 0) });
+        for (const off of spread) game.shoot({ from: this, heading: this.heading + off, speed: power ? 38 : 32, life: 0.65, kind: power ? 'bigarrow' : 'arrow', dmg: () => this.rollDamage(c.mult), knock: power ? 6 : 3, pierce: pierce + (power ? 2 : 1) });
       } else {
         sfx.fire();
         const n = c.ranged === 'missile3' ? 3 : 1;
         for (let k = 0; k < n; k++) {
           const off = n === 1 ? 0 : (k - 1) * 0.25;
-          game.shoot({ from: this, heading: this.heading + off, speed: 20, life: 0.95, kind: 'missile', homing: at.target, dmg: () => this.rollDamage(c.mult), knock: 3, pierce });
+          game.shoot({ from: this, heading: this.heading + off, speed: 30, life: 0.7, kind: 'missile', homing: at.target, explode: 1.2, dmg: () => this.rollDamage(c.mult), knock: 3, pierce });
         }
       }
       return;
