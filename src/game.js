@@ -5,8 +5,8 @@
 import * as THREE from 'three';
 import { Dungeon, T } from './dungeon.js';
 import { Player } from './player.js';
-import { Enemy, ENEMY_TYPES } from './enemies.js';
-import { Effects } from './effects.js';
+import { Enemy, ENEMY_TYPES, sharedEnemyMaterials } from './enemies.js';
+import { Effects, Trail } from './effects.js';
 import { generateItem, rollBlessings, itemScore, RARITIES } from './items.js';
 import { SKILLS, MAX_SKILL_LEVEL, skillDef } from './skills.js';
 import { CLASSES } from './classes.js';
@@ -67,7 +67,9 @@ export class Game {
     this.ui = ui;
     this.input = input;
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 120);
+    // far plane just past the fog (solid fog colour from 46 m): nothing beyond it shows,
+    // so there's no point drawing it
+    this.camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 50);
     this.cam = { yaw: 0, pitch: 0.38, dist: 6.2, pos: new THREE.Vector3(), target: new THREE.Vector3() };
     this.effects = new Effects(this.scene, this.camera, document.getElementById('numbers'));
     this.effects.groundAt = (x, z) => (this.dungeon ? this.dungeon.floorAt(x, z) : 0);
@@ -140,6 +142,10 @@ export class Game {
   setQuality(q) {
     this.quality = q;
     this.sun.castShadow = q === 'high';
+    // every lit pixel pays for each point light: fewer real torch lights on phones
+    // (the torches still glow; only the nearest ones light the room)
+    const torches = q === 'high' ? 4 : q === 'medium' ? 2 : 1;
+    this.torchPool.forEach((l, i) => (l.visible = i < torches));
     if (this.player) this.applyShadows(this.player.mesh);
     for (const e of this.enemies) this.applyShadows(e.mesh);
     if (this.dungeon) this.dungeon.group.traverse((o) => o.isMesh && (o.castShadow = q === 'high' && !!o.userData.caster));
@@ -380,6 +386,7 @@ export class Game {
     this.spawnPortal(ex.x, ex.z);
     this.flowTimer = 0;
     this.revealTimer = 0;
+    this.prewarmShaders();
 
     if (!quiet) this.ui.toast(dg.isBoss ? `Floor ${n} — ☠ Boss Lair ☠` : `Floor ${n} — ${th.name}`, 2.5);
     if (this.net.isClient && this.inRun) this.net.send('sync', { f: n });
@@ -647,12 +654,18 @@ export class Game {
     if (this.net.isHost && this.net.live) this.net.broadcast('portal', { f: this.floor });
   }
 
+  coinMaterial() {
+    return (this.coinMat ||= mat(0xffd34d, { metal: 0.7, rough: 0.3, emissive: 0x664400 }));
+  }
+  potionMaterials() {
+    return (this.potionMats ||= { red: mat(0xff3b5c, { emissive: 0x551020, rough: 0.2 }), cork: mat(0x8a6a4a), glass: mat(0xdddddd, { rough: 0.1, transparent: true, opacity: 0.5 }) });
+  }
+
   dropGold(x, z, amount) {
     const coins = Math.min(8, Math.max(1, Math.round(amount / 4)));
     const per = amount / coins;
-    if (!this.coinMat) this.coinMat = mat(0xffd34d, { metal: 0.7, rough: 0.3, emissive: 0x664400 });
     for (let i = 0; i < coins; i++) {
-      const m = new THREE.Mesh(G.cyl(0.16, 0.16, 0.05, 12), this.coinMat);
+      const m = new THREE.Mesh(G.cyl(0.16, 0.16, 0.05, 12), this.coinMaterial());
       m.rotation.x = Math.PI / 2;
       const a = rng.next() * Math.PI * 2;
       const s = 2 + rng.next() * 3;
@@ -663,8 +676,7 @@ export class Game {
   }
 
   dropPotion(x, z) {
-    if (!this.potionMats) this.potionMats = { red: mat(0xff3b5c, { emissive: 0x551020, rough: 0.2 }), cork: mat(0x8a6a4a), glass: mat(0xdddddd, { rough: 0.1, transparent: true, opacity: 0.5 }) };
-    const P = this.potionMats;
+    const P = this.potionMaterials();
     const g = new THREE.Group();
     const b = new THREE.Mesh(G.sphere(0.22, 12, 9), P.red);
     g.add(b);
@@ -701,6 +713,77 @@ export class Game {
     this.pickups.push(pk);
     if (item.rarity.tier >= 3) this.effects.ring(x, z, 2, color, 0.6);
     return pk;
+  }
+
+  // A shader program compiles the first time its material setup is drawn, which
+  // freezes that frame: the first hit, kill, loot drop or skill of a run would
+  // hitch (worst on High, where lit materials also get shadow variants). Keep one
+  // hidden mesh per material setup that effects, projectiles, zones and loot use
+  // (hidden meshes cost nothing to draw, and keep their programs from being freed)
+  // and compile everything in the scene up front, for the render target it's
+  // really drawn into.
+  prewarmShaders() {
+    const R = this.renderer;
+    if (!R || !this.player || !this.dungeon) return;
+    if (!this.warm) {
+      const g = new THREE.Group();
+      g.name = 'shader-warmup';
+      g.visible = false;
+      const geo = G.box(0.1, 0.1, 0.1);
+      const add = (m) => g.add(new THREE.Mesh(geo, m));
+      const both = THREE.DoubleSide;
+      const glow = THREE.AdditiveBlending;
+      // effects.js: rings / zone discs, telegraphs, slashes / loot beams, lightning / fire patches
+      add(new THREE.MeshBasicMaterial({ transparent: true, side: both, depthWrite: false }));
+      add(new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false }));
+      add(new THREE.MeshBasicMaterial({ transparent: true, side: both, depthWrite: false, blending: glow }));
+      add(new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, blending: glow }));
+      add(new THREE.MeshBasicMaterial({ color: 0xffffff }));
+      // spikes and ice shards; meteors
+      add(new THREE.MeshStandardMaterial({ flatShading: true, transparent: true, emissive: 0x3388cc }));
+      add(new THREE.MeshStandardMaterial({ flatShading: true, emissive: 0xff5a1a }));
+      for (const m of Object.values(this.projMats())) add(m);
+      for (const m of Object.values(this.chestMats())) add(m);
+      for (const m of Object.values(this.potionMaterials())) add(m);
+      add(this.coinMaterial());
+      for (const m of sharedEnemyMaterials()) add(m);
+      // weapon swing ribbons
+      new Trail(g, 0xffffff).mesh.visible = true;
+      // loot on the floor, in every rarity
+      for (const tier of [0, 1, 2, 3, 4]) for (const slot of ['weapon', 'armor', 'charm']) g.add(buildDropModel(generateItem(Math.max(1, this.floor), this.player.clsId, 0, tier, slot)));
+      g.traverse((o) => (o.frustumCulled = false));
+      this.warm = g;
+    }
+    if (this.warm.parent !== this.scene) this.scene.add(this.warm);
+    const target = this.composer ? this.composer.readBuffer : null;
+    const prev = R.getRenderTarget();
+    // Metal and Vulkan also build a pipeline per shader + blend/depth mode + target
+    // format on the first real draw, so draw it all once, clipped to a single pixel
+    // (the particle system too, which is empty until the first hit). A target's
+    // scissor is read when it's bound, so set it first.
+    if (target) {
+      target.scissor.set(0, 0, 1, 1);
+      target.scissorTest = true;
+    }
+    R.setRenderTarget(target);
+    R.compile(this.scene, this.camera);
+    if (!target) {
+      R.setScissor(0, 0, 1, 1);
+      R.setScissorTest(true);
+    }
+    const fx = this.effects.pmesh;
+    const count = fx.count;
+    fx.count = 1;
+    this.warm.visible = true;
+    R.render(this.scene, this.camera);
+    this.warm.visible = false;
+    fx.count = count;
+    if (target) target.scissorTest = false;
+    else {
+      R.setScissor(0, 0, R.domElement.width, R.domElement.height);
+      R.setScissorTest(false);
+    }
+    R.setRenderTarget(prev);
   }
 
   removePickup(pk) {
@@ -1317,7 +1400,20 @@ export class Game {
 
     if (!this.net.isClient) {
       this.fxCtx = 'enemy';
-      for (const e of this.enemies.slice()) if (e.alive) e.update(dt, this);
+      this.enemyFrame = (this.enemyFrame || 0) + 1;
+      for (const e of this.enemies.slice()) {
+        if (!e.alive) continue;
+        // out of sight and far from every player: think at 20 Hz (with the time
+        // they skipped), which matters with a whole floor chasing across the map
+        e.far = !e.def.boss && !e.seen && this.nearestPlayerDist(e) > 28;
+        if (e.far && (this.enemyFrame + e.id) % 3) {
+          e.lodDt = (e.lodDt || 0) + dt;
+          continue;
+        }
+        const step = dt + (e.lodDt || 0);
+        e.lodDt = 0;
+        e.update(Math.min(step, 0.1), this);
+      }
       this.fxCtx = null;
       this.separateEnemies();
     }
@@ -1381,7 +1477,7 @@ export class Game {
       this.nearTorches = spots
         .map((s) => ({ s, d: (s.x - p.x) ** 2 + (s.z - p.z) ** 2 }))
         .sort((a, b) => a.d - b.d)
-        .slice(0, this.torchPool.length)
+        .slice(0, this.torchPool.filter((l) => l.visible).length)
         .map((o) => o.s);
     }
     this.torchPool.forEach((l, i) => {
@@ -1442,8 +1538,17 @@ export class Game {
     this.nearItem = null;
   }
 
+  // Distance from a monster to the closest player (the host counts everyone).
+  nearestPlayerDist(e) {
+    const p = this.player;
+    let d = Math.hypot(p.x - e.x, p.z - e.z);
+    if (this.net.isHost) for (const r of this.net.remotes.values()) d = Math.min(d, Math.hypot(r.x - e.x, r.z - e.z));
+    return d;
+  }
+
   separateEnemies() {
-    const es = this.enemies;
+    // monsters far from everyone aren't worth pushing apart every frame
+    const es = this.enemies.filter((e) => !e.far);
     const dg = this.dungeon;
     const p = this.player;
     for (let i = 0; i < es.length; i++) {

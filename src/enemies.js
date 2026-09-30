@@ -63,6 +63,11 @@ function shared() {
   SH.shield = new THREE.MeshBasicMaterial({ color: 0xffe066, transparent: true, opacity: 0.16, depthWrite: false, blending: THREE.AdditiveBlending });
   return SH;
 }
+// Health bars, freeze ice, stun stars, shields: hidden until a fight, so the game
+// draws them once up front (see Game.prewarmShaders).
+export function sharedEnemyMaterials() {
+  return Object.values(shared()).filter((m) => m && m.isMaterial);
+}
 const fillGeo = (() => {
   const g = new THREE.PlaneGeometry(1, 0.12);
   g.translate(0.5, 0, 0);
@@ -898,7 +903,9 @@ export class Enemy {
     // locomotion base
     const s = this.speedNow;
     const idle = this.aggro ? 'Idle_Combat' : 'Idle';
-    if (this.y > (d.hover || 0) + 0.3) an.setBase({ Jump_Idle: 1 });
+    // airborne: above the floor it stands on (platforms count as floor)
+    const air = this.y - (this.groundY || 0) > (d.hover || 0) + 0.3;
+    if (air) an.setBase({ Jump_Idle: 1 });
     else if (s < 0.3) an.setBase({ [idle]: 1 });
     else {
       const ref = d.mscale * this.scale;
@@ -927,7 +934,7 @@ export class Enemy {
       model.look(this.lookA * 0.6);
     }
     const daze = this.stun > 0 || this.blind > 0 ? Math.sin(t * 7) * 0.12 : 0;
-    model.pivot.rotation.set(this.y > (d.hover || 0) + 0.3 ? -0.35 : 0, 0, daze);
+    model.pivot.rotation.set(air ? -0.35 : 0, 0, daze);
   }
 
   animateMimic(dt) {

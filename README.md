@@ -213,6 +213,20 @@ Every setting also lowers its render resolution automatically (in 0.25 steps) wh
 averages under ~48 fps, so a slow device drops a little sharpness instead of frame rate. The
 High shadows are snapped to whole shadow-map texels, so their edges don't crawl while you walk.
 
+Performance notes:
+
+- **60 fps cap.** On 90/120/144 Hz screens the game skips refreshes to draw 60 frames a second
+  (less heat and battery; the game is tuned for 60).
+- **No first-hit hitch.** Shaders compile, and Metal/Vulkan build their pipelines, the first time
+  a material is drawn. On each floor load the game keeps one hidden mesh per material setup that
+  effects, projectiles, zones, loot and enemy health bars use, compiles them all and draws them
+  once into a single pixel, so the first hit, kill or skill of a run doesn't freeze a frame.
+- **Draw less.** The camera stops at the fog (50 m), and level detail is merged in 16 m chunks
+  so off-screen parts are skipped: about half the draw calls and a third fewer triangles.
+  Medium uses 2 real torch lights (High 4, Low 1); every torch still glows.
+- **Think less.** Monsters out of sight and far from every player update at 20 Hz, and the HUD
+  only touches the page when a value changes.
+
 ## Code layout
 
 | File              | Purpose                                                         |

@@ -22,6 +22,25 @@ export class UI {
     this.mmTimer = 0;
     this.itemShown = null;
     this.isTouch = false;
+    // write-if-changed DOM helpers for the per-frame HUD
+    this.setText = (el, v) => {
+      if (el._t === v) return;
+      el._t = v;
+      el.textContent = v;
+    };
+    this.setStyle = (el, k, v) => {
+      const c = el._s || (el._s = {});
+      if (c[k] === v) return;
+      c[k] = v;
+      if (k.startsWith('--')) el.style.setProperty(k, v);
+      else el.style[k] = v;
+    };
+    this.setClass = (el, cls, on) => {
+      const k = '_c' + cls;
+      if (el[k] === on) return;
+      el[k] = on;
+      el.classList.toggle(cls, on);
+    };
 
     const bar = $('skillbar');
     this.pcSkills = [0, 1, 2, 3].map((i) => {
@@ -247,12 +266,16 @@ export class UI {
     const p = game.player;
     if (!p) return;
     const f = p.final;
-    $('hpFill').style.width = `${(100 * Math.max(0, p.hp)) / f.maxHp}%`;
-    $('shieldFill').style.width = `${Math.min(100, (100 * p.shield) / f.maxHp)}%`;
-    $('hpText').textContent = `${Math.ceil(Math.max(0, p.hp))} / ${f.maxHp}`;
-    $('floorText').textContent = `Floor ${game.floor}`;
-    $('goldText').textContent = `💰 ${p.gold}`;
-    $('enemyText').textContent = game.floorCleared ? '✦ Portal open' : `👹 ${game.enemies.filter((e) => !e.disguised).length}`;
+    // the HUD only touches the DOM when a value changes: every write costs a style
+    // recalculation (and text writes a layout), which adds up at 60 fps on phones
+    const text = this.setText;
+    const css = this.setStyle;
+    css($('hpFill'), 'width', `${((100 * Math.max(0, p.hp)) / f.maxHp).toFixed(1)}%`);
+    css($('shieldFill'), 'width', `${Math.min(100, (100 * p.shield) / f.maxHp).toFixed(1)}%`);
+    text($('hpText'), `${Math.ceil(Math.max(0, p.hp))} / ${f.maxHp}`);
+    text($('floorText'), `Floor ${game.floor}`);
+    text($('goldText'), `💰 ${p.gold}`);
+    text($('enemyText'), game.floorCleared ? '✦ Portal open' : `👹 ${game.enemies.filter((e) => !e.disguised).length}`);
     // combo counter
     const combo = game.comboT > 0 ? game.combo : 0;
     const cEl = $('combo');
@@ -267,7 +290,7 @@ export class UI {
         cEl.classList.add('pop');
       }
     }
-    if (combo >= 5) cEl.style.setProperty('--left', Math.max(0, game.comboT / 2.5));
+    if (combo >= 5) css(cEl, '--left', Math.max(0, game.comboT / 2.5).toFixed(2));
     const buffs = Object.entries(p.buffs);
     const bEl = $('buffs');
     const bKey = buffs.map(([id, b]) => id + Math.ceil(b.t)).join();
@@ -277,6 +300,9 @@ export class UI {
     }
 
     const pips = (el, max, have) => {
+      const key = max * 16 + have;
+      if (el._pips === key) return;
+      el._pips = key;
       if (el.childElementCount !== max) el.innerHTML = '<i></i>'.repeat(max);
       for (let i = 0; i < max; i++) el.children[i].classList.toggle('empty', i >= have);
     };
@@ -284,23 +310,27 @@ export class UI {
     pips(dashEl, p.mods.dashCharges, p.dashCharges);
     if (!input.isTouch) pips(this.pcJumpCharges, 1 + p.mods.airJumps, p.grounded ? 1 + p.mods.airJumps : p.airJumpsLeft);
 
+    // only the visible set of skill buttons (touch ring or desktop bar)
     for (let i = 0; i < 4; i++) {
       const k = p.skills[i] ? p.cooldowns[i] / p.skillCooldown(i) : 0;
-      const pc = this.pcSkills[i];
-      pc.cd.style.height = `${k * 100}%`;
-      pc.num.textContent = p.cooldowns[i] > 0 ? Math.ceil(p.cooldowns[i]) : '';
+      if (!input.isTouch) {
+        const pc = this.pcSkills[i];
+        css(pc.cd, 'height', `${Math.round(k * 100)}%`);
+        text(pc.num, p.cooldowns[i] > 0 ? String(Math.ceil(p.cooldowns[i])) : '');
+        continue;
+      }
       const ts = this.touchSkills[i];
-      // radial sweep on the round touch buttons
-      ts.cd.style.background = k > 0 ? `conic-gradient(rgba(0,0,0,0.72) ${Math.round(k * 360)}deg, rgba(0,0,0,0) 0)` : 'none';
-      ts.num.textContent = p.cooldowns[i] > 0.05 ? Math.ceil(p.cooldowns[i]) : '';
-      ts.el.classList.toggle('ready', !!p.skills[i] && k <= 0);
-      ts.el.classList.toggle('sel', input.attackSwipeDir === i);
+      // radial sweep on the round touch buttons (in 4 degree steps)
+      css(ts.cd, 'background', k > 0 ? `conic-gradient(rgba(0,0,0,0.72) ${Math.round(k * 90) * 4}deg, rgba(0,0,0,0) 0)` : 'none');
+      text(ts.num, p.cooldowns[i] > 0.05 ? String(Math.ceil(p.cooldowns[i])) : '');
+      this.setClass(ts.el, 'ready', !!p.skills[i] && k <= 0);
+      this.setClass(ts.el, 'sel', input.attackSwipeDir === i);
     }
 
     if (input.isTouch && input.joy) {
-      this.joyBase.style.display = 'block';
-      this.joyBase.style.left = `${input.joy.ox}px`;
-      this.joyBase.style.top = `${input.joy.oy}px`;
+      css(this.joyBase, 'display', 'block');
+      css(this.joyBase, 'left', `${input.joy.ox}px`);
+      css(this.joyBase, 'top', `${input.joy.oy}px`);
       let dx = input.joy.x - input.joy.ox;
       let dy = input.joy.y - input.joy.oy;
       const m = Math.hypot(dx, dy);
@@ -308,14 +338,14 @@ export class UI {
         dx = (dx / m) * 55;
         dy = (dy / m) * 55;
       }
-      this.joyKnob.style.transform = `translate(${dx}px, ${dy}px)`;
-    } else this.joyBase.style.display = 'none';
-    $('attackBtn').classList.toggle('active', !!input.attackTouch);
+      css(this.joyKnob, 'transform', `translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px)`);
+    } else css(this.joyBase, 'display', 'none');
+    this.setClass($('attackBtn'), 'active', !!input.attackTouch);
 
     const b = game.boss;
     if (b && b.alive && b.aggro) {
       this.show('bossbar');
-      $('bossFill').style.width = `${(100 * b.hp) / b.maxHp}%`;
+      css($('bossFill'), 'width', `${((100 * b.hp) / b.maxHp).toFixed(1)}%`);
     } else this.hide('bossbar');
 
     this.mmTimer -= dt;

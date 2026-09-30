@@ -12,7 +12,7 @@ import { makeRng } from './utils.js';
 import { propGeometry } from './assets.js';
 import { T, WALL_H, BLOCK_H, STEP_H, STAIR_DIRS, TILE } from './tiles.js';
 
-const CHUNK = T * 12;
+const CHUNK = T * 8; // small enough for frustum culling to skip most of the level
 const DIRS = [
   [1, 0],
   [-1, 0],

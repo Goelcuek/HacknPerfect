@@ -97,6 +97,8 @@ function applyQuality(q) {
     game.loadFloor(1, true);
     game.setupBackdrop(chosenClass);
   }
+  // shadows on/off and the new render target change every shader: compile them now
+  game.prewarmShaders();
   ui.setQualityLabel(q);
   try {
     localStorage.setItem(QUALITY_KEY, q);
@@ -281,9 +283,17 @@ function adaptResolution(ms) {
   }
 }
 
+// Capped at 60 fps: on 90/120/144 Hz screens, skip display refreshes so that a frame
+// is drawn every 1/60 s on average (keeping the cadence instead of just enforcing a
+// minimum gap, which would fall to 48 fps at 144 Hz). Saves battery and heat.
+const FRAME_MS = 1000 / 60;
 let last = performance.now();
+let lastDraw = last;
 function frame(now) {
   requestAnimationFrame(frame);
+  const since = now - lastDraw;
+  if (since < FRAME_MS - 1.5) return;
+  lastDraw = now - (since % FRAME_MS > FRAME_MS - 1.5 ? 0 : since % FRAME_MS);
   const ms = now - last;
   const dt = Math.min(0.05, ms / 1000);
   last = now;
