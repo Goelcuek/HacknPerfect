@@ -81,7 +81,9 @@ Apple only allows native apps from the App Store (or signed with a developer acc
 simplest way on iOS is the web version installed as an app: open the GitHub Pages link in
 **Safari**, tap **Share → Add to Home Screen**. It gets the game's icon and runs full screen
 without Safari's bars, and multiplayer and run saving work the same. iOS doesn't let web apps lock
-the orientation, so turn off the portrait lock and hold the phone sideways.
+the orientation, so turn off the portrait lock and hold the phone sideways. (The game sizes itself
+from the screen in this mode, because after a rotation iOS reports a viewport that's short by the
+status bar's height, which used to leave a black strip along the bottom.)
 
 ## Classes
 
@@ -152,6 +154,8 @@ chains dashes between targets.
 
 ## Gameplay
 
+- **Low health warning.** Below 35% health the screen edges glow red, a heartbeat starts and the
+  health bar pulses. Both beat faster and deeper as health runs out.
 - **Slay the den's lord.** Every floor has a boss den, the big room farthest along, where the
   portal waits. Its lord guards it: the **Skeleton Warlord** (slams and charges), **The Lich**
   (orb volleys and hexes that erupt under you), the **Death Knight** (shielded, charges), **The

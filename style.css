@@ -41,6 +41,25 @@ canvas#game {
   display: block;
 }
 
+/* iPhone home-screen app: fill the real screen (see viewSize in main.js), not the
+   viewport iOS under-reports after a rotation */
+html.ios-app,
+html.ios-app body {
+  height: var(--app-h, 100vh);
+}
+html.ios-app canvas#game,
+html.ios-app #hud,
+html.ios-app #damageFlash,
+html.ios-app #lowHp,
+html.ios-app #numbers,
+html.ios-app #screens,
+html.ios-app #loading {
+  right: auto;
+  bottom: auto;
+  width: var(--app-w, 100vw);
+  height: var(--app-h, 100vh);
+}
+
 .hidden {
   display: none !important;
 }
@@ -225,6 +244,23 @@ kbd {
   box-shadow: inset 0 0 120px rgba(255, 0, 0, 0.7);
   opacity: 0;
   transition: opacity 0.25s;
+}
+
+/* low health: a red vignette that beats faster and deeper as health runs out */
+#lowHp {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(ellipse at center, rgba(120, 0, 0, 0) 45%, rgba(150, 0, 0, 0.55) 80%, rgba(90, 0, 0, 0.9) 100%);
+}
+#stats .bar.hp.low {
+  animation: hpPulse 0.6s ease-in-out infinite alternate;
+}
+@keyframes hpPulse {
+  to {
+    box-shadow: 0 0 14px 2px rgba(255, 40, 40, 0.85);
+  }
 }
 
 #numbers {

@@ -121,4 +121,9 @@ export const sfx = {
     tone('sine', 900, 1300, 0.25, 0.12, 0.1);
   },
   ui: () => tone('triangle', 700, 900, 0.05, 0.12),
+  // low-health heartbeat: lub-dub
+  heartbeat: (v = 1) => {
+    tone('sine', 70, 45, 0.14, 0.45 * v);
+    tone('sine', 62, 40, 0.12, 0.32 * v, 0.17);
+  },
 };

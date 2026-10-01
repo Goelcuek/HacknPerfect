@@ -247,6 +247,43 @@ export class UI {
     this.toastTimer = secs;
   }
 
+  // Below 35% health: a red vignette and heartbeat that quicken and deepen toward
+  // zero, and a glowing health bar. Off outside the dungeon and once fallen.
+  lowHealth(game, dt) {
+    const p = game.player;
+    const on = p && !p.dead && (game.state === 'play' || game.state === 'pause');
+    const frac = on ? Math.max(0, p.hp) / p.final.maxHp : 1;
+    const level = Math.min(1, Math.max(0, (0.35 - frac) / 0.3));
+    const el = $('lowHp');
+    if (level <= 0) {
+      if (this.lowShown) {
+        this.lowShown = false;
+        el.style.opacity = '0';
+        $('stats').querySelector('.bar.hp').classList.remove('low');
+      }
+      this.beatT = 0;
+      return;
+    }
+    if (!this.lowShown) {
+      this.lowShown = true;
+      $('stats').querySelector('.bar.hp').classList.add('low');
+    }
+    const period = 1 / (1 + level * 1.3); // 60 → 138 bpm
+    if (game.state === 'play') {
+      this.beatT = (this.beatT || 0) - dt;
+      if (this.beatT <= 0) {
+        this.beatT += period;
+        if (this.beatT < 0) this.beatT = period;
+        this.beatAt = performance.now();
+        sfx.heartbeat(0.5 + level * 0.5);
+      }
+    }
+    // each beat swells the vignette, then it eases back toward a resting glow
+    const since = (performance.now() - (this.beatAt || 0)) / 1000;
+    const swell = Math.max(0, 1 - since / (period * 0.7));
+    el.style.opacity = (0.3 + level * 0.4 + swell * (0.15 + level * 0.15)).toFixed(3);
+  }
+
   flashDamage() {
     const f = $('damageFlash');
     f.style.transition = 'none';

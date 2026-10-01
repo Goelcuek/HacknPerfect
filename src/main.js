@@ -20,7 +20,30 @@ const isTouchDevice = matchMedia('(pointer: coarse)').matches;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.15;
 renderer.shadowMap.type = THREE.PCFShadowMap; // soft PCF costs noticeably more per pixel
-renderer.setSize(window.innerWidth, window.innerHeight, false);
+
+// iPhone home-screen app: after a rotation iOS reports a viewport short by the status
+// bar's height (a black strip along the bottom), so there the size comes from the
+// screen itself, which a full-screen web app covers entirely. The CSS follows --app-h.
+const iosApp = navigator.standalone === true;
+if (iosApp) document.documentElement.classList.add('ios-app');
+function viewSize() {
+  if (!iosApp) return [window.innerWidth, window.innerHeight];
+  const o = typeof window.orientation === 'number' ? window.orientation : window.innerWidth > window.innerHeight ? 90 : 0;
+  const land = Math.abs(o) === 90;
+  const a = Math.max(screen.width, screen.height);
+  const b = Math.min(screen.width, screen.height);
+  let w = land ? a : b;
+  let h = land ? b : a;
+  // a windowed app (iPad split view) really is smaller than the screen: trust it then
+  if (Math.abs(w - window.innerWidth) > 100 || Math.abs(h - window.innerHeight) > 100) {
+    w = window.innerWidth;
+    h = window.innerHeight;
+  }
+  document.documentElement.style.setProperty('--app-w', `${w}px`);
+  document.documentElement.style.setProperty('--app-h', `${h}px`);
+  return [w, h];
+}
+renderer.setSize(...viewSize(), false);
 
 // Graphics quality: low (no bloom/shadows), medium (bloom), high (bloom + shadows)
 const QUALITY_KEY = 'hacknperfect.quality';
@@ -70,8 +93,7 @@ function applyQuality(q) {
   frameStats.reset();
   renderer.setPixelRatio(pixelRatio);
   renderer.shadowMap.enabled = q === 'high';
-  const w = window.innerWidth;
-  const h = window.innerHeight;
+  const [w, h] = viewSize();
   renderer.setSize(w, h, false);
   if (game.composer) {
     game.composer.dispose();
@@ -250,12 +272,16 @@ loadAssets((f) => {
     if (loadEl) loadEl.querySelector('.ltext').textContent = 'Could not load the game assets. Check your connection and reload.';
   });
 
-window.addEventListener('resize', () => {
-  const w = window.innerWidth;
-  const h = window.innerHeight;
+function onResize() {
+  const [w, h] = viewSize();
   renderer.setSize(w, h, false);
   if (game.composer) game.composer.setSize(w, h);
   game.resize(w, h);
+}
+window.addEventListener('resize', onResize);
+// iOS settles its sizes a moment after a rotation: measure again once it has
+window.addEventListener('orientationchange', () => {
+  for (const ms of [100, 400, 900]) setTimeout(onResize, ms);
 });
 
 // Android back button (called by the APK wrapper): pause / resume the run.
@@ -320,8 +346,7 @@ function adaptResolution(ms, budget) {
   const floor = Math.min(0.75, maxPixelRatio);
   if ((avg > budget * 1.2 || missed >= 8) && pixelRatio > floor + 0.01) {
     pixelRatio = Math.max(floor, pixelRatio - 0.25);
-    const w = window.innerWidth;
-    const h = window.innerHeight;
+    const [w, h] = viewSize();
     renderer.setPixelRatio(pixelRatio);
     renderer.setSize(w, h, false);
     if (game.composer) {
@@ -400,6 +425,7 @@ function frame(now) {
   step(dt);
   if (game.player) game.render();
   updateMusic();
+  ui.lowHealth(game, dt);
 }
 
 // Which track fits the moment: the title theme in menus, the floor setting's own
