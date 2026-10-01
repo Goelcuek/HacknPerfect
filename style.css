@@ -294,10 +294,16 @@ kbd {
 .dmg.heal {
   color: #6bff8f;
 }
+.dmg.ping {
+  color: #fff;
+  font-size: 20px;
+  text-shadow: 0 0 8px rgba(0, 0, 0, 0.9);
+}
 
 /* item card */
 #itemcard,
-#portalcard {
+#portalcard,
+#eventcard {
   position: absolute;
   left: 50%;
   bottom: calc(80px + var(--safe-b));
@@ -308,6 +314,8 @@ kbd {
   border-radius: 12px;
   padding: 10px 12px;
   font-size: 13px;
+  max-height: 58vh;
+  overflow-y: auto;
 }
 #itemHeader {
   font-weight: 800;
@@ -325,6 +333,26 @@ kbd {
 #itemCompare div {
   display: flex;
   justify-content: space-between;
+}
+p.legend {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: left;
+}
+p.legend.uq b {
+  color: #ffb347;
+}
+p.legend.st b {
+  color: var(--c);
+  display: block;
+}
+p.legend.st span {
+  display: block;
+  color: var(--muted);
+}
+p.legend.st span.on {
+  color: var(--c);
 }
 #itemCompare .up {
   color: #6bff8f;
@@ -435,7 +463,8 @@ body.touch #skillbar {
   color: #ffc94a;
 }
 body.touch #itemcard,
-body.touch #portalcard {
+body.touch #portalcard,
+body.touch #eventcard {
   bottom: auto;
   top: calc(64px + var(--safe-t));
 }
@@ -726,6 +755,89 @@ h2 {
 }
 h2.red {
   color: #ff5a67;
+}
+h2.gold {
+  color: #ffd34d;
+  text-shadow: 0 0 24px rgba(255, 200, 60, 0.6);
+}
+button.primary.forge {
+  background: linear-gradient(180deg, #2a6a8a, #1a3a5a);
+  border-color: #6ad8ff;
+}
+button small {
+  display: block;
+  font-size: 12px;
+  opacity: 0.8;
+  font-weight: 500;
+}
+#shardText {
+  color: #9fe8ff;
+}
+#modsText {
+  font-size: 13px;
+  color: #ff9a9a;
+  margin-top: 2px;
+  letter-spacing: 1px;
+}
+#modsText:empty {
+  display: none;
+}
+
+/* merchant, altar, soul forge: a panel of rows with a button each */
+.ev-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: min(620px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+}
+.ev-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+.evrow {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  text-align: left;
+  padding: 8px 10px;
+  background: #1c1f2e;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.evrow .evlabel {
+  flex: 1;
+  min-width: 0;
+}
+.evrow small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+.evrow button {
+  white-space: nowrap;
+  min-width: 96px;
+}
+#eventcard {
+  border-color: #ffd34d;
+  text-align: center;
+}
+#eventHeader {
+  font-weight: 800;
+  font-size: 15px;
+}
+#eventInfo {
+  margin: 4px 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+#victoryStats {
+  text-align: center;
+  line-height: 1.7;
 }
 .subtitle {
   margin: 0;
@@ -1503,4 +1615,31 @@ body:not(.touch) .pin-pad {
   display: flex;
   gap: 8px;
   justify-content: center;
+}
+
+/* multiplayer pings */
+#pingWrap {
+  position: absolute;
+  top: calc(180px + var(--safe-t));
+  right: calc(12px + var(--safe-r));
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: flex-start;
+  gap: 6px;
+}
+#pingBtn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  padding: 0;
+  font-size: 20px;
+}
+#pingMenu {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+#pingMenu button {
+  padding: 6px 10px;
+  font-size: 13px;
 }

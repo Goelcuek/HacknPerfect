@@ -11,6 +11,7 @@ import { skillDef, EVO_LEVEL } from './skills.js';
 import { buildHero, dressHero } from './hero.js';
 import { clip } from './assets.js';
 import { Trail } from './effects.js';
+import { Powers, gearBonuses, emitGearFx } from './legend.js';
 
 const GRAVITY = 28;
 const JUMP_V = 10;
@@ -118,6 +119,7 @@ export class Player {
       dashCharges: 1,
       airJumps: 1,
       fireDash: false,
+      size: 0,
       stomp: false,
       thorns: 0,
       regen: 0,
@@ -129,6 +131,10 @@ export class Player {
     this.upgradeCounts = {};
     this.skills = [null, null, null, null]; // { id, level } per swipe direction
     this.equipment = { weapon: null, armor: null, charm: null };
+    this.pw = new Powers(this);
+    this.gearMods = {};
+    this.meta = null; // permanent upgrades (soul forge), set by the game
+    this.pact = null; // cursed altar bargain for this floor
     this.model = buildHero(clsId);
     this.mesh = this.model.group;
     this.buildShadowAndShield();
@@ -205,25 +211,36 @@ export class Player {
 
   // ----------------------------------------------------------------- stats
   recompute() {
-    const s = { ...this.stats };
+    const s = { ...this.stats, hpPct: 0, armorPct: 0 };
     for (const slot of SLOTS) {
       const it = this.equipment[slot];
       if (!it) continue;
       for (const k in it.stats) s[k] = (s[k] || 0) + it.stats[k];
     }
+    // uniques and set bonuses: stats, mods (reach, size) and powers
+    const gb = gearBonuses(this.equipment);
+    for (const k in gb.stats) s[k] = (s[k] || 0) + gb.stats[k];
+    for (const k in this.gearMods) this.mods[k] -= this.gearMods[k];
+    this.gearMods = gb.mods;
+    for (const k in gb.mods) this.mods[k] = (this.mods[k] || 0) + gb.mods[k];
+    this.pw.set = gb.powers;
+    this.setCounts = gb.counts;
+    // soul forge upgrades and the floor's altar pact
+    for (const src of [this.meta, this.pact]) if (src) for (const k in src.stats || {}) s[k] = (s[k] || 0) + src.stats[k];
     const prevMax = this.final ? this.final.maxHp : null;
     this.final = {
-      maxHp: Math.round(s.maxHp),
+      maxHp: Math.max(1, Math.round(s.maxHp * (1 + s.hpPct))),
       damage: s.damage * (1 + s.dmgPct),
-      armor: s.armor,
-      atkSpeed: 1 + s.attackSpeed,
+      armor: s.armor * (1 + s.armorPct),
+      atkSpeed: Math.max(0.3, 1 + s.attackSpeed),
       crit: Math.min(0.9, s.crit),
       critMult: 1 + s.critMult,
       lifesteal: s.lifesteal,
-      moveSpeed: 7.5 * (1 + s.moveSpeed),
+      moveSpeed: 7.5 * Math.min(2, 1 + s.moveSpeed),
       cdr: Math.min(0.6, s.cdr),
       skillMult: 1 + s.skillPower,
       goldMult: 1 + s.goldFind,
+      dmgTakenMul: 1 + (s.dmgTakenPct || 0),
     };
     this.updateArmor();
     if (prevMax !== null && this.hp !== undefined) {
@@ -234,7 +251,10 @@ export class Player {
 
   updateArmor() {
     const a = this.final.armor + (this.buff ? this.buff.armor : 0);
-    this.final.dmgTaken = 50 / (50 + Math.max(0, a));
+    // armour keeps pace with deeper floors: its worth is relative to the gear of the floor
+    const fl = this.game.floor || 1;
+    const k = 50 * (1 + Math.max(0, fl - 1) * 0.04) * (fl > 20 ? Math.pow(1.13, fl - 20) : 1);
+    this.final.dmgTaken = (k / (k + Math.max(0, a))) * (this.final.dmgTakenMul || 1);
   }
 
   equip(item) {
@@ -433,6 +453,7 @@ export class Player {
       if (this.shieldT <= 0) this.breakShield();
     }
     if (this.mods.regen > 0) this.heal(f.maxHp * this.mods.regen * dt, false);
+    if (!this.demo) this.pw.update(dt, game);
 
     // camera-relative wish direction
     const sy = Math.sin(cam.yaw);
@@ -512,7 +533,7 @@ export class Player {
       this.dashTime -= dt;
       this.vy = Math.max(this.vy, 0);
       game.effects.puff(this.x, this.y + 0.9, this.z, 0x9fd8ff, 0.35, 0.25);
-      if (this.mods.fireDash) {
+      if (this.mods.fireDash || this.pw.has('firedash')) {
         this.fireTrailT -= dt;
         if (this.fireTrailT <= 0) {
           this.fireTrailT = 0.04;
@@ -557,6 +578,7 @@ export class Player {
       if (!this.grounded && this.vy < -4) {
         game.effects.burst(this.x, ground + 0.1, this.z, 0x777777, 5, 2, 0.1, 0.3);
         this.landT = 0.16;
+        if (this.vy < -9 && !this.demo) this.pw.onLand(game);
       }
       this.y = ground;
       this.vy = 0;
@@ -628,6 +650,7 @@ export class Player {
     this.action = null; // dashing cancels channels
     this.vy = Math.max(this.vy, 0);
     sfx.dash();
+    if (!this.demo) this.pw.onDash(this.game);
   }
 
   canStartAttack() {
@@ -709,6 +732,7 @@ export class Player {
     this.cooldowns[idx] = def.cd(s.level) * (1 - this.final.cdr);
     this.attack = null;
     def.cast(this, s.level, ctx);
+    this.pw.onSkill(idx);
     this.game.ui.skillFlash(idx);
     return true;
   }
@@ -727,6 +751,7 @@ export class Player {
       if (dmg <= 0) return true;
     }
     this.hp -= dmg;
+    this.pw.onHurt(dmg, source, melee, game);
     this.invuln = 0.45;
     this.hurtFlash = 0.22;
     game.effects.damageNumber(this.x, this.y + 2, this.z, `-${dmg}`, 'player');
@@ -736,6 +761,18 @@ export class Player {
     sfx.hurt();
     if (melee && source && this.mods.thorns > 0 && source.alive) {
       game.damageEnemy(source, { amount: amount * this.mods.thorns, crit: false, knock: 3 }, this.x, this.z);
+    }
+    if (this.hp <= 0 && this.pw.cheatDeath(game)) return true;
+    if (this.hp <= 0 && this.meta?.secondWind && !this.secondWindUsed) {
+      // soul forge: one second chance per run
+      this.secondWindUsed = true;
+      this.hp = this.final.maxHp * 0.4;
+      this.invuln = 2;
+      game.effects.ring(this.x, this.z, 3, 0x9fffb0, 0.5, this.y + 0.1);
+      game.effects.burst(this.x, this.y + 1, this.z, 0x9fffb0, 30, 6, 0.2, 0.7);
+      game.ui.toast('✦ Second Wind! ✦', 2, '#9fffb0');
+      sfx.heal();
+      return true;
     }
     if (this.hp <= 0) {
       this.hp = 0;
@@ -938,7 +975,8 @@ export class Player {
     p.rotation.set(A.accLean * (a || at ? 0.3 : 1) + flipX, spinY, A.bank);
     // landing squash
     const sq = this.landT > 0 ? (this.landT / 0.16) * 0.12 : 0;
-    const size = 1 + (this.buff?.size || 0);
+    const size = 1 + (this.buff?.size || 0) + (this.mods.size || 0);
+    model.sizeK = size;
     const cur = g.scale.x + (size - g.scale.x) * Math.min(1, dt * 6);
     g.scale.set(cur * (1 + sq * 0.5), cur * (1 - sq), cur * (1 + sq * 0.5));
 
@@ -948,6 +986,7 @@ export class Player {
     }
     this.updateTrails(dt);
 
+    if (!this.demo && !this.dead) emitGearFx(model, this.game.effects, dt, g.position);
     // legendary weapons shed sparks
     const tips = model.tips;
     if (tips.length && this.equipment.weapon && this.equipment.weapon.rarity.tier >= 4 && Math.random() < 0.25 && !this.demo) {

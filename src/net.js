@@ -341,6 +341,17 @@ export class Net {
       case 'enter':
         if (g.floorCleared && g.state !== 'upgrade') g.enterPortal(true);
         return;
+      case 'trial': {
+        const ev = (g.events || []).find((e) => e.i === m.i && e.kind === 'trial');
+        if (ev && !ev.used) g.startTrial(ev);
+        return;
+      }
+      case 'ping':
+        if (typeof m.x === 'number' && typeof m.z === 'number') {
+          g.showPing(id, String(m.k || 'here'), m.x, m.z);
+          this.broadcast('ping', { id, k: m.k, x: m.x, z: m.z }, id);
+        }
+        return;
       case 'look':
         if (r && m.look) {
           r.setLook(m.look);
@@ -355,7 +366,7 @@ export class Net {
   }
 
   spawnInfo(e) {
-    return { id: e.id, type: e.type, x: r2(e.x), z: r2(e.z), elite: e.elite ? 1 : 0, af: e.affixes, hp: Math.round(e.maxHp), cur: Math.round(e.hp), dormant: e.dormant ? 1 : 0, mimic: e.disguised ? 1 : 0, rise: e.rising > 0 ? 1 : 0, sum: e.summoned ? 1 : 0, h: r2(e.heading) };
+    return { id: e.id, type: e.type, x: r2(e.x), z: r2(e.z), elite: e.elite ? 1 : 0, af: e.affixes, hp: Math.round(e.maxHp), cur: Math.round(e.hp), dormant: e.dormant ? 1 : 0, mimic: e.disguised ? 1 : 0, rise: e.rising > 0 ? 1 : 0, sum: e.summoned ? 1 : 0, ec: e.echo ? 1 : 0, h: r2(e.heading) };
   }
 
   // Host: a new enemy exists — tell everyone and mirror its animation calls.
@@ -515,6 +526,12 @@ export class Net {
         return;
       case 'next':
         g.beginNextFloor(m.f, m.seed);
+        return;
+      case 'trialdone':
+        if (m.f === g.floor) g.trialReward(m.i);
+        return;
+      case 'ping':
+        if (typeof m.x === 'number' && typeof m.z === 'number') g.showPing(m.id ?? 0, String(m.k || 'here'), m.x, m.z);
         return;
       case 'over':
         g.gameOver();
@@ -747,7 +764,7 @@ function clampK(v) {
 
 // What other players need to dress our hero: rarity tier + colour per slot.
 export function lookOf(p) {
-  const it = (x) => (x ? { t: x.rarity.tier, h: x.rarity.hex } : null);
+  const it = (x) => (x ? { t: x.rarity.tier, h: x.rarity.hex, u: x.u, s: x.set } : null);
   return { w: it(p.equipment.weapon), a: it(p.equipment.armor), c: it(p.equipment.charm) };
 }
 

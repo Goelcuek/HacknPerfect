@@ -47,3 +47,13 @@ export function weightedPick(r, entries) {
   }
   return entries[entries.length - 1];
 }
+
+// Big numbers for damage pop-ups and gold: 12,345 → 12.3k, 4,560,000 → 4.56M.
+export function fmtNum(n) {
+  n = Math.round(n);
+  const a = Math.abs(n);
+  if (a < 10000) return String(n);
+  if (a < 1e6) return `${(n / 1e3).toFixed(a < 1e5 ? 1 : 0)}k`;
+  if (a < 1e9) return `${(n / 1e6).toFixed(a < 1e7 ? 2 : 1)}M`;
+  return `${(n / 1e9).toFixed(2)}B`;
+}

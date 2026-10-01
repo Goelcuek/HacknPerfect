@@ -3,14 +3,28 @@
 import { SKILLS, MAX_SKILL_LEVEL, skillDef } from './skills.js';
 import { CLASSES, CLASS_ORDER } from './classes.js';
 import { formatStats, SLOTS, SLOT_ICON } from './items.js';
+import { legendLines } from './legend.js';
 import { TILE } from './dungeon.js';
 import { sfx, setMuted, isMuted } from './audio.js';
-import { partyColor } from './utils.js';
+import { partyColor, fmtNum } from './utils.js';
+import { loadMeta, FORGE, forgeLevel, buyForge } from './meta.js';
+import { modsLabel } from './endless.js';
 
 const $ = (id) => document.getElementById(id);
 const PC_KEYS = ['Q', 'E', 'R', 'C'];
 const DIR_ARROWS = ['↑', '→', '↓', '←'];
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
+// The unique powers and set bonuses of an item, for the loot card and pause screen.
+function legendHtml(it, equipment) {
+  return legendLines(it, equipment)
+    .map((l) =>
+      l.kind === 'unique'
+        ? `<p class="legend uq"><b>✦ ${esc(l.name)}</b> ${esc(l.desc)}</p>`
+        : `<p class="legend st" style="--c:${l.color}"><b>${esc(l.name)}</b><span class="${l.n >= 2 ? 'on' : ''}">(2) ${esc(l.two)}</span><span class="${l.n >= 3 ? 'on' : ''}">(3) ${esc(l.three)}</span></p>`,
+    )
+    .join('');
+}
 
 export class UI {
   constructor() {
@@ -86,7 +100,7 @@ export class UI {
   }
 
   hideScreens() {
-    for (const id of ['title', 'mp', 'classSelect', 'skillPick', 'pause', 'death']) this.hide(id);
+    for (const id of ['title', 'mp', 'classSelect', 'skillPick', 'pause', 'death', 'eventScreen', 'victory', 'forge']) this.hide(id);
   }
 
   showTitle(best) {
@@ -100,6 +114,8 @@ export class UI {
     const save = this.savedRun;
     $('continueBtn').classList.toggle('hidden', !save);
     $('playBtn').textContent = save ? '▶ New run' : '▶ Play';
+    const meta = loadMeta();
+    $('forgeInfo').textContent = `${fmtNum(meta.shards)} shards${meta.wins ? ` · ${meta.wins} victor${meta.wins > 1 ? 'ies' : 'y'}` : ''}`;
     if (save) $('continueInfo').textContent = `${CLASSES[save.cls]?.icon || ''} ${CLASSES[save.cls]?.name || ''} · floor ${save.floor} · ${save.p?.gold || 0} gold`;
   }
 
@@ -310,8 +326,12 @@ export class UI {
     css($('hpFill'), 'width', `${((100 * Math.max(0, p.hp)) / f.maxHp).toFixed(1)}%`);
     css($('shieldFill'), 'width', `${Math.min(100, (100 * p.shield) / f.maxHp).toFixed(1)}%`);
     text($('hpText'), `${Math.ceil(Math.max(0, p.hp))} / ${f.maxHp}`);
-    text($('floorText'), `Floor ${game.floor}`);
-    text($('goldText'), `💰 ${p.gold}`);
+    text($('floorText'), game.floor > 20 ? `Floor ${game.floor} ∞` : `Floor ${game.floor}/20`);
+    text($('goldText'), `💰 ${fmtNum(p.gold)}`);
+    text($('shardText'), `💠 ${fmtNum(game.runShards || 0)}`);
+    this.setClass($('pingWrap'), 'hidden', !game.net.live);
+    const wr = p.pw.buffText();
+    text($('modsText'), (game.floor > 20 ? `∞ ${modsLabel(game.floor)}` : '') + (game.pact ? ` ${game.pact.icon} ${game.pact.name}` : '') + (wr ? ` ${wr}` : ''));
     text($('enemyText'), game.floorCleared ? '✦ Portal open' : `👹 ${game.enemies.filter((e) => !e.disguised).length}`);
     // combo counter
     const combo = game.comboT > 0 ? game.combo : 0;
@@ -382,7 +402,7 @@ export class UI {
     const b = game.boss;
     if (b && b.alive && b.aggro) {
       this.show('bossbar');
-      text($('bossName'), b.def.name);
+      text($('bossName'), b.displayName || b.def.name);
       css($('bossFill'), 'width', `${((100 * b.hp) / b.maxHp).toFixed(1)}%`);
     } else this.hide('bossbar');
 
@@ -436,6 +456,9 @@ export class UI {
     for (const e of game.enemies) if (e.aggro || seenAt(e.x, e.z)) dot(e.x, e.z, e.def.boss ? '#c04dff' : e.elite ? '#ffc94a' : '#ff4a4a', e.def.boss ? 5 : 2.5);
     const pt = game.portal;
     if (seenAt(pt.x, pt.z) || game.floorCleared) dot(pt.x, pt.z, pt.active ? '#b18cff' : '#666', 5);
+    // merchants and altars, and the party's pings (pulsing)
+    for (const ev of game.events || []) if (!ev.used && seenAt(ev.x, ev.z)) dot(ev.x, ev.z, ev.kind === 'merchant' ? '#ffd34d' : ev.kind === 'altar' ? '#ff3040' : '#6ad8ff', 3.5);
+    for (const q of game.pings || []) if (q.t > 0) dot(q.x, q.z, q.color, 3 + Math.abs(Math.sin(q.t * 6)) * 3);
     ctx.restore();
     // party members on this floor (pinned to the edge when out of range)
     const yaw = game.cam.yaw;
@@ -478,7 +501,7 @@ export class UI {
   }
 
   // ------------------------------------------------------------- item card
-  setItemCard(item, equipped) {
+  setItemCard(item, equipped, equipment = null) {
     if (item === this.itemShown && equipped === this.itemEquipped) return;
     this.itemShown = item;
     this.itemEquipped = equipped;
@@ -491,9 +514,118 @@ export class UI {
     card.style.borderColor = item.rarity.color;
     const looks = item.slot === 'weapon' ? 'changes your weapon' : item.slot === 'armor' ? 'changes your outfit' : 'adds an amulet';
     $('itemHeader').innerHTML = `<span style="color:${item.rarity.color}">${SLOT_ICON[item.slot]} ${esc(item.name)}</span><small>${item.rarity.name} ${item.slot} · floor ${item.level}${equipped ? ` · vs ${esc(equipped.name)}` : ' · slot empty'} · ${looks}</small>`;
-    $('itemCompare').innerHTML = formatStats(item, equipped || { stats: {} })
-      .map((l) => `<div><span>${l.label}</span><span class="${l.cls}">${l.value}</span></div>`)
-      .join('');
+    $('itemCompare').innerHTML =
+      formatStats(item, equipped || { stats: {} })
+        .map((l) => `<div><span>${l.label}</span><span class="${l.cls}">${l.value}</span></div>`)
+        .join('') + legendHtml(item, equipment);
+  }
+
+  // Merchant / altar / trial shrine within reach: what it is and F to use it.
+  setEventCard(e) {
+    const key = e ? `${e.kind}${e.i}` : '';
+    if (key === this.eventShown) return;
+    this.eventShown = key;
+    const card = $('eventcard');
+    if (!e) {
+      card.classList.add('hidden');
+      return;
+    }
+    card.classList.remove('hidden');
+    const t = {
+      merchant: ['💰 Wandering Merchant', 'Rare wares, a healing elixir and a mystery cache', 'Trade'],
+      altar: ['🩸 Cursed Altar', 'Strike a bargain for this floor: power at a price', 'Pray'],
+      trial: ['⚔ Trial Shrine', 'Survive three waves of monsters for a treasure', 'Begin trial'],
+    }[e.kind];
+    $('eventHeader').textContent = t[0];
+    $('eventInfo').textContent = t[1];
+    $('eventUseBtn').innerHTML = `${t[2]} <kbd class="pc">F</kbd>`;
+  }
+
+  // A panel of rows, each with a button: the merchant's stock, the altar's pacts.
+  showEventScreen(o, onClose) {
+    this.show('eventScreen');
+    $('evTitle').textContent = o.title;
+    $('evSub').textContent = o.sub || '';
+    $('evClose').textContent = o.closeLabel || 'Leave';
+    $('evClose').onclick = () => {
+      sfx.ui();
+      onClose();
+    };
+    const wrap = $('evRows');
+    wrap.innerHTML = '';
+    for (const r of o.rows || []) {
+      const row = document.createElement('div');
+      row.className = 'evrow';
+      row.innerHTML = `<div class="evlabel">${r.html}</div>`;
+      const b = document.createElement('button');
+      b.textContent = r.btn;
+      b.disabled = !!r.disabled;
+      b.onclick = () => r.onClick && r.onClick();
+      row.appendChild(b);
+      wrap.appendChild(row);
+    }
+  }
+
+  hideEventScreen() {
+    this.hide('eventScreen');
+  }
+
+  showVictory(s, onEndless, onRetire) {
+    this.hud.classList.add('hidden');
+    this.show('victory');
+    const mins = Math.floor(s.time / 60);
+    const secs = Math.floor(s.time % 60)
+      .toString()
+      .padStart(2, '0');
+    $('victoryStats').innerHTML = `The ${s.cls} slew <b>${s.kills}</b> monsters in <b>${mins}:${secs}</b><br><span style="color:#9fe8ff">${fmtNum(s.shards)} soul shards this run</span><br><small class="muted">Below lies the endless: every floor adds a curse, and the loot grows wilder.</small>`;
+    $('vEndless').onclick = () => {
+      sfx.ui();
+      onEndless();
+    };
+    $('vRetire').onclick = () => {
+      sfx.ui();
+      onRetire();
+    };
+  }
+
+  hideVictory() {
+    this.hide('victory');
+    this.hud.classList.remove('hidden');
+  }
+
+  // The Soul Forge: permanent upgrades bought with soul shards.
+  showForge(onBack) {
+    this.hideScreens();
+    this.show('forge');
+    const render = () => {
+      const m = loadMeta();
+      $('forgeSub').innerHTML = `<b style="color:#9fe8ff">${fmtNum(m.shards)} 💠 soul shards</b> · earned from elites, den lords, kings and every floor, kept when you fall${m.deepest ? ` · deepest floor ${m.deepest}` : ''}`;
+      const wrap = $('forgeRows');
+      wrap.innerHTML = '';
+      for (const f of FORGE) {
+        const l = forgeLevel(m, f.id);
+        const max = l >= f.max;
+        const row = document.createElement('div');
+        row.className = 'evrow';
+        row.innerHTML = `<div class="evlabel"><b>${f.icon} ${f.name}</b> <span class="muted">${l}/${f.max}</span><small>${max ? f.desc(l) : `${l ? `${f.desc(l)} → ` : ''}${f.desc(l + 1)}`}</small></div>`;
+        const b = document.createElement('button');
+        b.textContent = max ? 'Maxed' : `${f.cost(l)} 💠`;
+        b.disabled = max || m.shards < f.cost(l);
+        b.onclick = () => {
+          if (buyForge(loadMeta(), f.id)) {
+            sfx.heal();
+            render();
+          }
+        };
+        row.appendChild(b);
+        wrap.appendChild(row);
+      }
+    };
+    render();
+    $('forgeClose').onclick = () => {
+      sfx.ui();
+      onBack();
+    };
   }
 
   // Standing in an open portal asks before going down; `info` is null to hide it.
@@ -526,7 +658,7 @@ export class UI {
       const lines = formatStats(it)
         .map((l) => `<div><span>${l.label}</span><span>${l.value}</span></div>`)
         .join('');
-      return `<div class="gearslot" style="border-color:${it.rarity.color}"><b style="color:${it.rarity.color}">${SLOT_ICON[slot]} ${esc(it.name)}</b>${lines}</div>`;
+      return `<div class="gearslot" style="border-color:${it.rarity.color}"><b style="color:${it.rarity.color}">${SLOT_ICON[slot]} ${esc(it.name)}</b>${lines}${legendHtml(it, p.equipment)}</div>`;
     }).join('');
     $('pauseSkills').innerHTML = p.skills
       .map((s, i) => {
@@ -582,7 +714,10 @@ export class UI {
       .padStart(2, '0');
     $('deathMp').classList.toggle('hidden', !s.mp);
     $('deathMp').textContent = s.mp || '';
-    $('deathStats').innerHTML = `The ${s.cls} reached <b>floor ${s.floor}</b><br>Slain <b>${s.kills}</b> monsters · Gathered <b>${s.gold}</b> gold<br>Time <b>${mins}:${secs}</b><br>${s.newBest ? '<b style="color:#ffcf5a">★ New best! ★</b>' : `Best: floor ${s.best.floor}`}`;
+    $('deathTitle').textContent = s.retired ? '★ Victorious ★' : s.won ? 'Fallen in the endless depths' : 'You have fallen';
+    $('deathTitle').className = s.retired ? 'gold' : 'red';
+    const sh = s.shards ? `<br><span style="color:#9fe8ff">+${fmtNum(s.shards.earned)} soul shards</span> · ${fmtNum(s.shards.total)} to spend at the Soul Forge` : '';
+    $('deathStats').innerHTML = `The ${s.cls} reached <b>floor ${s.floor}</b><br>Slain <b>${s.kills}</b> monsters · Gathered <b>${s.gold}</b> gold<br>Time <b>${mins}:${secs}</b><br>${s.newBest ? '<b style="color:#ffcf5a">★ New best! ★</b>' : `Best: floor ${s.best.floor}`}${sh}`;
   }
 
   // ----------------------------------------------------------- multiplayer
@@ -691,6 +826,14 @@ export class UI {
     $('equipBtn').onclick = handlers.equip;
     $('salvageBtn').onclick = handlers.salvage;
     $('portalGoBtn').onclick = handlers.portalGo;
+    $('eventUseBtn').onclick = handlers.useEvent;
+    $('pingBtn').onclick = () => $('pingMenu').classList.toggle('hidden');
+    for (const b of document.querySelectorAll('#pingMenu button'))
+      b.onclick = () => {
+        $('pingMenu').classList.add('hidden');
+        handlers.ping(b.dataset.ping);
+      };
+    $('forgeBtn').onclick = handlers.forge;
     $('portalStayBtn').onclick = handlers.portalStay;
     $('pauseBtn').onclick = handlers.pause;
     $('qualityBtn').onclick = handlers.quality;

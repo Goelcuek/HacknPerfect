@@ -40,10 +40,21 @@
           <span id="floorText">Floor 1</span>
           <span id="goldText">💰 0</span>
           <span id="enemyText">👹 0</span>
+          <span id="shardText">💠 0</span>
         </div>
+        <div id="modsText"></div>
       </div>
       <canvas id="minimap" width="160" height="160"></canvas>
       <div id="party" class="hidden"></div>
+      <div id="pingWrap" class="ui-block hidden">
+        <button id="pingBtn" aria-label="Ping">📍</button>
+        <div id="pingMenu" class="hidden">
+          <button data-ping="here">📍 Here!</button>
+          <button data-ping="attack">⚔ Attack!</button>
+          <button data-ping="loot">💎 Loot!</button>
+          <button data-ping="help">🆘 Help!</button>
+        </div>
+      </div>
       <button id="pauseBtn" class="ui-block" data-btn="pause" aria-label="Pause">❚❚</button>
 
       <div id="bossbar" class="hidden">
@@ -71,6 +82,14 @@
         </div>
       </div>
 
+      <div id="eventcard" class="ui-block hidden">
+        <div id="eventHeader"></div>
+        <div id="eventInfo"></div>
+        <div class="card-buttons">
+          <button id="eventUseBtn">Use <kbd class="pc">F</kbd></button>
+        </div>
+      </div>
+
       <div id="skillbar"></div>
 
       <div id="touch">
@@ -94,6 +113,7 @@
         <button id="continueBtn" class="primary hidden">⏵ Continue<small id="continueInfo"></small></button>
         <button id="playBtn" class="primary">▶ Play</button>
         <button id="mpBtn" class="primary alt">👥 Multiplayer</button>
+        <button id="forgeBtn" class="primary forge">💠 Soul Forge<small id="forgeInfo"></small></button>
         <div class="row-buttons small-row">
           <button id="qualityBtn" class="secondary small">Graphics: High</button>
           <button id="fpsBtn" class="secondary small">FPS: off</button>
@@ -103,7 +123,7 @@
         <div class="controls">
           <div class="pc-only">
             <b>WASD</b> move · <b>Mouse</b> camera · <b>Space</b> jump / double jump · <b>Shift</b> dash<br />
-            <b>Left click</b> attack · <b>Q E R C</b> skills · <b>F</b> equip loot · <b>M</b> music · <b>Esc</b> pause
+            <b>Left click</b> attack · <b>Q E R C</b> skills · <b>F</b> equip / use · <b>G</b> ping · <b>M</b> music · <b>Esc</b> pause
           </div>
           <div class="touch-only">
             Left side: move · Right side: drag camera<br />
@@ -191,8 +211,34 @@
         </div>
       </div>
 
+      <div id="eventScreen" class="screen ui-block hidden">
+        <div class="ev-panel">
+          <h2 id="evTitle"></h2>
+          <p id="evSub" class="subtitle"></p>
+          <div id="evRows" class="ev-rows"></div>
+          <button id="evClose" class="secondary">Leave</button>
+        </div>
+      </div>
+
+      <div id="victory" class="screen ui-block hidden">
+        <h2 class="gold">★ Victory ★</h2>
+        <p class="subtitle">The Hollow God is dead. Twenty floors conquered.</p>
+        <div id="victoryStats"></div>
+        <button id="vEndless" class="primary">∞ Descend into the endless depths</button>
+        <button id="vRetire" class="secondary">Retire victorious</button>
+      </div>
+
+      <div id="forge" class="screen ui-block hidden">
+        <div class="ev-panel">
+          <h2>💠 Soul Forge</h2>
+          <p id="forgeSub" class="subtitle"></p>
+          <div id="forgeRows" class="ev-rows"></div>
+          <button id="forgeClose" class="secondary">Back</button>
+        </div>
+      </div>
+
       <div id="death" class="screen ui-block hidden">
-        <h2 class="red">You have fallen</h2>
+        <h2 id="deathTitle" class="red">You have fallen</h2>
         <div id="deathStats"></div>
         <p id="deathMp" class="mp-status hidden"></p>
         <button id="againBtn" class="primary">Play again</button>

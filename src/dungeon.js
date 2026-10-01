@@ -6,6 +6,8 @@ import { makeRng, clamp } from './utils.js';
 
 import { T, WALL_H, BLOCK_H, STEP_H, STAIR_DIRS, TILE, HEIGHT, THEMES } from './tiles.js';
 import { buildEnvironment, PROP_WEIGHTS } from './decor.js';
+import { endlessEffects } from './endless.js';
+import { throneBossForFloor } from './enemies.js';
 
 export { T, WALL_H, BLOCK_H, STEP_H, STAIR_DIRS, TILE, THEMES };
 
@@ -41,6 +43,7 @@ export class Dungeon {
     this.rng = makeRng(seed);
     this.isBoss = floor % 5 === 0;
     this.theme = themeForFloor(floor);
+    this.endless = endlessEffects(floor);
     this.generate();
     if (party > 1) this.addPartySpawns(party, seed);
   }
@@ -149,6 +152,7 @@ export class Dungeon {
     }
     this.placeProps();
     this.placeContent();
+    this.placeEvents();
   }
 
   // Furniture and statues against room walls. Each placement is kept only if
@@ -491,7 +495,7 @@ export class Dungeon {
     }
     // some skeletons lie in wait as bone piles and rise when the hero comes close
     const dormant = (type === 'grunt' || type === 'brute') && r.chance(0.3);
-    return { type, ...pos, elite: f >= 2 && r.chance(0.06 + f * 0.01), dormant };
+    return { type, ...pos, elite: f >= 2 && r.chance(0.06 + Math.min(f, 25) * 0.012 + this.endless.elite), dormant };
   }
 
   // Bigger parties get more monsters: +40% per extra player.
@@ -512,7 +516,7 @@ export class Dungeon {
     for (const room of this.rooms) {
       if (room === this.startRoom) continue;
       if (room.boss) {
-        this.spawns.push({ type: 'boss', ...this.worldCenter(room), elite: false });
+        this.spawns.push({ type: throneBossForFloor(f), ...this.worldCenter(room), elite: false });
         continue;
       }
       if (room.den) {
@@ -525,8 +529,8 @@ export class Dungeon {
         continue;
       }
       const area = room.w * room.h;
-      let n = Math.round(area / 20) + Math.floor(f / 3) + r.int(0, 2);
-      n = clamp(n, 3, 10);
+      let n = Math.round(area / 20) + Math.floor(Math.min(f, 20) / 3) + r.int(0, 2);
+      n = Math.round(clamp(n, 3, 10) * this.endless.swarm);
       room.spawnCount = n;
       for (let i = 0; i < n; i++) this.spawns.push(this.rollSpawn(r, room, pool));
       const pots = r.int(0, 3);
@@ -555,6 +559,43 @@ export class Dungeon {
           this.traps.push({ tx, tz, x: (tx + 0.5) * T, z: (tz + 0.5) * T, phase: r.next() * 3 });
         }
       }
+    }
+  }
+
+  // Floor events (from floor 2, not on throne floors): a wandering merchant, a cursed
+  // altar, and one of a treasure goblin / trial shrine / prisoner's cage. Placed from
+  // the floor's own seed, so every player sees the same ones.
+  placeEvents() {
+    this.events = [];
+    const f = this.floor;
+    if (f < 2 || this.isBoss) return;
+    const r = this.rng;
+    const rooms = this.rooms.filter((rm) => rm !== this.startRoom && !rm.boss && !rm.den);
+    if (!rooms.length) return;
+    const spot = (room) => {
+      for (let i = 0; i < 30; i++) {
+        const tx = r.int(room.x + 2, room.x + room.w - 3);
+        const tz = r.int(room.z + 2, room.z + room.h - 3);
+        let ok = true;
+        for (let dz = -1; dz <= 1 && ok; dz++) for (let dx = -1; dx <= 1 && ok; dx++) ok = this.flatGround(tx + dx, tz + dz) && !this.traps.some((t) => t.tx === tx + dx && t.tz === tz + dz);
+        if (ok) return { x: (tx + 0.5) * T, z: (tz + 0.5) * T };
+      }
+      return null;
+    };
+    const take = () => rooms.splice(r.int(0, rooms.length - 1), 1)[0];
+    const add = (kind, chance) => {
+      if (!rooms.length || !r.chance(chance)) return;
+      const room = take();
+      const at = spot(room);
+      if (at) this.events.push({ kind, ...at, room });
+    };
+    add('merchant', 0.45);
+    add('altar', 0.5);
+    const special = r.pick(['goblin', 'trial', 'cage']);
+    add(special, 0.8);
+    for (const ev of this.events) {
+      if (ev.kind === 'goblin') this.spawns.push({ type: 'goblin', x: ev.x, z: ev.z, elite: false });
+      if (ev.kind === 'cage') this.spawns.push({ type: 'cage', x: ev.x, z: ev.z, elite: false });
     }
   }
 

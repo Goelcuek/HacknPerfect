@@ -34,7 +34,23 @@ export const ENEMY_TYPES = {
   deathknight: { name: 'Death Knight', model: 'Knight', look: { cls: 'knight', show: ['2H_Sword', 'Knight_Helmet', 'Knight_Cape'] }, tint: 0x6a6080, mscale: 1.25, gear: [], hp: 440, dmg: 19, speed: 3.8, radius: 1.0, height: 2.9, range: 3.2, windup: 0.8, recover: 0.9, color: 0x8a80b0, gold: [50, 80], heavy: true, boss: true, den: true, guard: 0.4, walk: 'Walking_A', run: 'Running_A', attack: '2H_Melee_Attack_Chop', moves: ['charge', 'slam', 'slam'], enraged: ['charge', 'nova'] },
   butcher: { name: 'The Butcher', model: 'Barbarian', look: { cls: 'barbarian', show: ['2H_Axe', 'Barbarian_Hat', 'Barbarian_Cape'] }, tint: 0xb07060, mscale: 1.3, gear: [], hp: 460, dmg: 20, speed: 3.9, radius: 1.1, height: 3.0, range: 3.4, windup: 0.8, recover: 0.9, color: 0xc07050, gold: [50, 80], heavy: true, boss: true, den: true, walk: 'Walking_A', run: 'Running_B', attack: '2H_Melee_Attack_Chop', moves: ['charge', 'charge', 'slam'], enraged: ['nova', 'charge'] },
   matriarch: { name: 'Shade Matriarch', model: 'Rogue_Hooded', look: { cls: 'ranger', show: ['Knife', 'Knife_Offhand', 'Rogue_Cape'] }, tint: 0x5a5a88, mscale: 1.25, gear: [], hp: 340, dmg: 17, speed: 4.6, radius: 0.9, height: 2.8, range: 2.6, windup: 0.7, recover: 0.8, color: 0x8080c0, gold: [50, 80], boss: true, den: true, walk: 'Walking_A', run: 'Running_A', attack: '1H_Melee_Attack_Stab', moves: ['blink', 'volley', 'blink'], enraged: ['summon', 'blink', 'volley'] },
+
+  // ---- throne bosses of floors 10, 15 and 20 (the Bone King keeps floor 5); they come
+  // back round in the endless depths. `glow` burns the body, `el` colours their meteors.
+  colossus: { name: 'Infernal Colossus', model: 'Barbarian', look: { cls: 'barbarian', show: ['2H_Axe', 'Barbarian_Hat', 'Barbarian_Cape'] }, tint: 0x60301a, glow: 0xff4a10, el: 'fire', mscale: 2.1, gear: [], hp: 1900, dmg: 30, speed: 3.6, radius: 1.8, height: 4.6, range: 4.2, windup: 0.8, recover: 0.9, color: 0xff6a2a, gold: [200, 300], heavy: true, boss: true, walk: 'Walking_A', run: 'Running_B', attack: '2H_Melee_Attack_Chop', moves: ['slam', 'charge', 'meteors'], enraged: ['nova', 'meteors', 'meteors', 'summon'] },
+  archlich: { name: 'Archlich Vael', model: 'Skeleton_Mage', mscale: 2.1, gear: [['Skeleton_Staff', 'r']], glow: 0x5ab4ff, el: 'frost', hp: 2100, dmg: 28, speed: 3.2, radius: 1.5, height: 4.6, range: 3.2, windup: 0.8, recover: 0.9, color: 0x9fe8ff, gold: [220, 320], boss: true, walk: 'Walking_C', run: 'Running_A', moves: ['volley', 'hex', 'meteors'], enraged: ['summon', 'nova', 'hex', 'volley', 'meteors'] },
+  hollowgod: { name: 'The Hollow God', model: 'Knight', look: { cls: 'knight', show: ['2H_Sword', 'Knight_Helmet', 'Knight_Cape'] }, tint: 0x302040, glow: 0x9a40ff, el: 'void', mscale: 2.7, gear: [], hp: 3800, dmg: 36, speed: 4.0, radius: 2.0, height: 5.8, range: 4.6, windup: 0.75, recover: 0.8, color: 0xb04dff, gold: [400, 600], heavy: true, boss: true, final: true, guard: 0.25, walk: 'Walking_A', run: 'Running_A', attack: '2H_Melee_Attack_Chop', moves: ['slam', 'charge', 'volley', 'blink', 'meteors'], enraged: ['nova', 'summon', 'hex', 'meteors', 'blink', 'meteors'] },
+
+  // ---- floor events
+  goblin: { name: 'Treasure Goblin', model: 'Rogue', look: { cls: 'rogue', show: ['Knife'] }, tint: 0xd0c040, glow: 0xffc020, mscale: 0.62, gear: [], back: 'barrel_small', hp: 160, dmg: 0, speed: 6.4, radius: 0.45, height: 1.4, range: 0, windup: 1, recover: 1, color: 0xffd34d, gold: [150, 250], goldMul: 1, ai: 'flee', walk: 'Running_A', run: 'Running_A' },
+  cage: { name: 'Prison Cage', cage: true, hp: 60, dmg: 0, speed: 0, radius: 0.9, height: 2.2, range: 0, windup: 1, recover: 1, color: 0x8a8a90, gold: [0, 0], ai: 'still' },
 };
+
+// Throne bosses by floor (every 5th), cycling through again in the endless depths.
+const THRONES = ['boss', 'colossus', 'archlich', 'hollowgod'];
+export function throneBossForFloor(f) {
+  return THRONES[(Math.floor(f / 5) - 1) % THRONES.length];
+}
 
 // Den bosses in rotation (by floor), and the hero looks the fallen adventurers borrow.
 export const DEN_BOSSES = ['warlord', 'lich', 'deathknight', 'butcher', 'matriarch'];
@@ -47,6 +63,8 @@ export const AFFIXES = {
   shielded: { name: 'Shielded', color: 0xffe066 },
   frenzied: { name: 'Frenzied', color: 0xff6a3a },
   arcane: { name: 'Arcane', color: 0xb58cff },
+  giant: { name: 'Giant', color: 0xffb070 },
+  splitter: { name: 'Splitting', color: 0x9aff6a },
 };
 const AFFIX_IDS = Object.keys(AFFIXES);
 
@@ -125,9 +143,11 @@ export class Enemy {
     this.def = def;
     this.elite = elite;
     this.floor = floor;
-    const fm = floor - 1;
-    const hpMul = (1 + 0.32 * fm + 0.025 * fm * fm) * (elite ? 2.6 : 1);
-    this.dmgMul = (1 + 0.13 * fm) * (elite ? 1.4 : 1);
+    const fm = Math.min(floor, 20) - 1;
+    // past floor 20 (endless) monsters compound: +16% health and +9% damage a floor
+    const deep = Math.max(0, floor - 20);
+    const hpMul = (1 + 0.32 * fm + 0.028 * fm * fm) * Math.pow(1.16, deep) * (elite ? 2.6 : 1);
+    this.dmgMul = (1 + 0.15 * fm) * Math.pow(1.09, deep) * (elite ? 1.4 : 1);
     this.maxHp = def.hp * hpMul;
     this.hp = this.maxHp;
     this.scale = elite ? 1.25 : 1;
@@ -166,6 +186,9 @@ export class Enemy {
     // multiplayer clients mirror monsters the host simulates ("puppets")
     this.puppet = !!o.puppet;
     if (elite) this.rollAffixes(floor, Array.isArray(o.affixes) ? o.affixes.filter((a) => AFFIXES[a]) : null);
+    // deeper den lords and kings come with elite powers of their own
+    else if (def.boss && (floor >= 8 || o.affixes)) this.rollAffixes(floor, Array.isArray(o.affixes) ? o.affixes.filter((a) => AFFIXES[a] && a !== 'giant' && a !== 'splitter') : null, floor >= 21 ? 3 : floor >= 14 ? 2 : 1);
+    this.displayName = this.affixes.length && def.boss ? (floor > 10 && def.den ? 'Elder ' : '') + this.affixes.map((a) => AFFIXES[a].name).join(' ') + ' ' + def.name.replace(/^The /, '') : def.name;
     this.buildMesh();
     // skeletons can lie dormant as bone piles, or claw their way out of the ground
     if (o.rise) this.startRise();
@@ -173,15 +196,23 @@ export class Enemy {
     if (o.mimic) this.disguised = true;
   }
 
-  rollAffixes(floor, given = null) {
-    const n = floor >= 5 ? 2 : 1;
-    const pool = AFFIX_IDS.slice();
-    if (given && given.length) this.affixes = given.slice(0, 2);
+  rollAffixes(floor, given = null, count = 0) {
+    const n = count || (floor >= 21 ? 4 : floor >= 12 ? 3 : floor >= 5 ? 2 : 1);
+    const pool = AFFIX_IDS.filter((a) => !(this.def.boss && (a === 'giant' || a === 'splitter')) && !(this.def.ai === 'still' || this.def.ai === 'flee'));
+    if (given && given.length) this.affixes = given.slice(0, 4);
     else for (let i = 0; i < n && pool.length; i++) this.affixes.push(pool.splice(Math.floor(rng.next() * pool.length), 1)[0]);
     const has = (a) => this.affixes.includes(a);
+    if (has('giant')) {
+      this.scale *= 1.45;
+      this.radius = this.def.radius * this.scale;
+      this.height = this.def.height * this.scale;
+      this.maxHp *= 1.8;
+      this.hp = this.maxHp;
+      this.dmgMul *= 1.3;
+    }
     if (has('swift')) this.speedMul = 1.45;
     if (has('frenzied')) this.tempo = 0.6;
-    if (has('shielded')) this.shieldHp = this.maxHp * 0.4;
+    if (has('shielded')) this.shieldHp = this.maxHp * (this.def.boss ? 0.15 : 0.4);
     this.arcaneT = 2 + rng.next() * 2;
   }
 
@@ -226,7 +257,7 @@ export class Enemy {
 
   // Called when this enemy's attack connects with the player.
   onHitPlayer(dmg) {
-    if (this.affixes.includes('vampiric') && this.alive) {
+    if ((this.affixes.includes('vampiric') || this.game.endless?.vampiric) && this.alive) {
       const h = dmg * 1.5;
       this.hp = Math.min(this.maxHp, this.hp + h);
       this.game.effects.damageNumber(this.x, this.y + this.height + 0.3, this.z, `+${Math.round(h)}`, 'heal');
@@ -272,6 +303,7 @@ export class Enemy {
       this.eyeMat = model.mats.find((m) => m.name === 'Glow') || null;
       this.bodyMats = model.mats.filter((m) => m !== this.eyeMat);
       if (d.tint) for (const m of this.bodyMats) m.color.multiply(new THREE.Color(d.tint));
+      this.glowHex = d.glow || 0;
       const eye = d.boss ? 0xb04dff : this.elite ? AFFIXES[this.affixes[0]].color : null;
       if (this.eyeMat && eye) {
         this.eyeMat.color.setHex(eye);
@@ -281,6 +313,8 @@ export class Enemy {
       root.add(model.group);
     } else if (d.prop) {
       this.buildMimic(root);
+    } else if (d.cage) {
+      this.buildCage(root);
     } else {
       this.buildWisp(root);
     }
@@ -496,6 +530,19 @@ export class Enemy {
     }
     this.mesh.visible = !!(this.seen || this.def.boss);
     this.speedNow = 0;
+    if (def.ai === 'still') {
+      this.render(dt);
+      return;
+    }
+    if (def.ai === 'flee') return this.fleeUpdate(dt, game, p, dist);
+    // the Hollow God calls echoes of the den lords at two-thirds and one-third health
+    if (def.final && !this.puppet && this.alive) {
+      const ph = this.hp < this.maxHp * 0.33 ? 2 : this.hp < this.maxHp * 0.66 ? 1 : 0;
+      if (ph > (this.phase || 0)) {
+        this.phase = ph;
+        game.summonEchoes?.(this, ph);
+      }
+    }
 
     if (this.disguised) {
       if ((dist < 2.4 && Math.abs(p.y - this.y) < 2) || this.hp < this.maxHp) this.reveal();
@@ -673,6 +720,78 @@ export class Enemy {
     this.render(dt);
   }
 
+  // Treasure goblin: runs from the nearest hero, and escapes through a rift if it
+  // isn't caught in time.
+  fleeUpdate(dt, game, p, dist) {
+    const dg = game.dungeon;
+    if (!this.aggro && dist < 11) {
+      this.aggro = true;
+      this.escapeT = 22;
+      game.ui.toast('A Treasure Goblin! Catch it before it escapes!', 2.4, '#ffd34d');
+      sfx.coin();
+    }
+    if (this.aggro && !this.puppet) {
+      this.escapeT -= dt;
+      if (this.escapeT <= 0) {
+        game.escapeEnemy?.(this);
+        return;
+      }
+      if (this.stun <= 0 && this.freeze <= 0) {
+        // away from the hero, sliding along walls; a little zig-zag
+        let ax = this.x - p.x;
+        let az = this.z - p.z;
+        const d = Math.hypot(ax, az) || 1;
+        ax /= d;
+        az /= d;
+        const wob = Math.sin(this.animT * 3) * 0.5;
+        let dx = ax - az * wob;
+        let dz = az + ax * wob;
+        const sp = this.def.speed * this.slowF * (dist < 6 ? 1.15 : 0.8);
+        for (const turn of [0, 0.8, -0.8, 1.6, -1.6, Math.PI]) {
+          const c = Math.cos(turn);
+          const sn = Math.sin(turn);
+          const tx = dx * c - dz * sn;
+          const tz = dx * sn + dz * c;
+          if (!dg.blocked(this.x + tx * 0.9, this.z + tz * 0.9, this.radius, (this.groundY || 0) + 0.3)) {
+            dx = tx;
+            dz = tz;
+            break;
+          }
+        }
+        this.walk(dg, dx * sp * dt, dz * sp * dt);
+        this.turnTo(Math.atan2(dx, dz), dt, 10);
+        this.speedNow = sp;
+        if (Math.random() < dt * 6) game.effects.puff(this.x, this.y + 0.4, this.z, 0xffd34d, 0.18, 0.5);
+      }
+    }
+    this.render(dt);
+  }
+
+  // A prisoner's cage: iron bars round a captive hero waiting to be freed.
+  buildCage(root) {
+    const iron = mat(0x4a4a52, { metal: 0.6, rough: 0.5 });
+    this.ownMats.push(iron);
+    const g = new THREE.Group();
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2;
+      part(g, G.cyl(0.05, 0.05, 2.3, 6), iron, [Math.cos(a) * 0.95, 1.15, Math.sin(a) * 0.95]);
+    }
+    part(g, G.cyl(1.05, 1.05, 0.12, 14), iron, [0, 2.3, 0]);
+    part(g, G.cyl(1.05, 1.05, 0.12, 14), iron, [0, 0.06, 0]);
+    part(g, G.torus(0.98, 0.04, Math.PI * 2, 4, 20), iron, [0, 1.2, 0], [Math.PI / 2, 0, 0]);
+    // the captive: a hero of a class picked by where the cage stands (same for everyone)
+    const classes = ['knight', 'ranger', 'mage', 'barbarian', 'rogue'];
+    this.captiveCls = classes[Math.abs(Math.floor(this.x * 7 + this.z * 13)) % classes.length];
+    const look = HERO_LOOKS[this.captiveCls];
+    const cm = new CharacterModel(look.model, { scale: 0.75 });
+    cm.only(look.gear, []);
+    cm.animator.play('Idle', { loop: true, instant: true });
+    this.captive = cm;
+    g.add(cm.group);
+    root.add(g);
+    this.bodyMats = [iron];
+  }
+
   // Voluntary movement: never step off a ledge (archers backing away would lose the
   // high ground). Knockback still can push a monster off.
   walk(dg, dx, dz) {
@@ -794,7 +913,7 @@ export class Enemy {
     game.shockwave(this.x, this.z, 3, dmg, this);
     for (const o of game.enemies.slice()) {
       if (o === this || !o.alive || Math.hypot(o.x - this.x, o.z - this.z) > 3) continue;
-      game.damageEnemy(o, { amount: dmg * 1.2, crit: false, knock: 8 }, this.x, this.z);
+      game.damageEnemy(o, { amount: dmg * 1.2, crit: false, knock: 8, noProc: true }, this.x, this.z);
     }
     if (this.alive) game.killEnemy(this);
   }
@@ -880,7 +999,7 @@ export class Enemy {
       this.bossAttack = m;
       this.state = 'bosswind';
       this.stateT = 0;
-      this.bossWind = m === 'charge' ? 0.7 : m === 'volley' ? 0.6 : m === 'summon' ? 1.2 : m === 'blink' ? 0.45 : m === 'hex' ? 1.15 : 1.0;
+      this.bossWind = m === 'charge' ? 0.7 : m === 'volley' ? 0.6 : m === 'summon' ? 1.2 : m === 'blink' ? 0.45 : m === 'hex' ? 1.15 : m === 'meteors' ? 1.3 : 1.0;
       if (enraged) this.bossWind *= 0.75;
       const p = this.lookTarget || game.player;
       if (m === 'hex') {
@@ -892,6 +1011,20 @@ export class Enemy {
           this.hexes.push({ x: p.x + Math.cos(a) * 3.5, z: p.z + Math.sin(a) * 3.5 });
         }
         for (const h of this.hexes) game.effects.telegraph(h.x, h.z, 2.6, this.bossWind, 0xd040a0);
+      } else if (m === 'meteors') {
+        // a rain of meteors: one on the target, the rest scattered around them
+        this.meteors = [{ x: p.x, z: p.z }];
+        const n = enraged ? 9 : 6;
+        for (let i = 0; i < n; i++) {
+          const a = rng.next() * Math.PI * 2;
+          const r = 2 + rng.next() * 6;
+          this.meteors.push({ x: p.x + Math.cos(a) * r, z: p.z + Math.sin(a) * r });
+        }
+        const col = { fire: 0xff6a2a, frost: 0x9fe8ff, void: 0xb04dff }[this.def.el] || 0xff6a2a;
+        for (const h of this.meteors) {
+          game.effects.telegraph(h.x, h.z, 2.4, this.bossWind, col);
+          game.effects.meteor(h.x, h.z, this.bossWind);
+        }
       } else if (m === 'blink') {
         game.effects.smoke(this.x, this.z);
         game.effects.burst(this.x, this.y + 1.5, this.z, 0x404058, 16, 4, 0.25, 0.6);
@@ -941,6 +1074,13 @@ export class Enemy {
           sfx.dash();
         } else if (m === 'summon') {
           game.raiseDead(this, 3);
+        } else if (m === 'meteors') {
+          const col = { fire: 0xff6a2a, frost: 0x9fe8ff, void: 0xb04dff }[this.def.el] || 0xff6a2a;
+          for (const h of this.meteors || []) {
+            game.effects.burst(h.x, 0.4, h.z, col, 18, 8, 0.22, 0.6);
+            game.shockwave(h.x, h.z, 2.4, dmg * 1.1, this);
+          }
+          sfx.boom();
         } else if (m === 'hex') {
           for (const h of this.hexes || []) {
             game.effects.burst(h.x, 0.3, h.z, 0xd040a0, 16, 7, 0.2, 0.6);
@@ -1058,6 +1198,7 @@ export class Enemy {
     const w = this.bossWind;
     if (m === 'slam') this.strike(this.def.attack || '2H_Melee_Attack_Chop', w, { windup: 0.65 });
     else if (m === 'nova') this.strike('1H_Melee_Attack_Jump_Chop', w, { windup: 0.7 });
+    else if (m === 'meteors') an.play('Spellcasting', { part: 'upper', loop: true, fadeIn: 0.12 });
     else if (m === 'volley') this.strike('Throw', w, { windup: 0.6 });
     else if (m === 'summon') this.strike('Spellcast_Summon', w, { windup: 1.8, after: 0.6 });
     else if (m === 'charge') an.play('Blocking', { part: 'upper', loop: true, fadeIn: 0.1 });
@@ -1077,8 +1218,8 @@ export class Enemy {
     if (this.bodyMats) {
       if (tint !== this.lastTint) {
         for (const mt of this.bodyMats) {
-          mt.emissive.setHex(tint);
-          mt.emissiveIntensity = this.flash > 0 ? 0.7 : 0.6;
+          mt.emissive.setHex(tint || this.glowHex || 0);
+          mt.emissiveIntensity = this.flash > 0 ? 0.7 : tint ? 0.6 : 0.4;
         }
         this.lastTint = tint;
       }
@@ -1086,6 +1227,17 @@ export class Enemy {
 
     this.updateIce();
     this.updateStars(dt);
+    if (this.captive) {
+      this.captive.update(dt);
+      this.captive.group.rotation.y = Math.sin(t * 0.5) * 0.8;
+    }
+    // burning / frozen / void bosses smoulder
+    if (this.def.el && dt > 0 && Math.random() < dt * 40) {
+      const a = Math.random() * Math.PI * 2;
+      const r = this.radius * (0.4 + Math.random() * 0.5);
+      const col = { fire: 0xff6a2a, frost: 0x9fe8ff, void: 0xb04dff }[this.def.el];
+      this.game.effects.puff(this.x + Math.cos(a) * r, this.y + Math.random() * this.height, this.z + Math.sin(a) * r, col, 0.35, 0.6);
+    }
     if (this.aura) this.aura.rotation.z = t;
     if (this.bubble) {
       this.bubble.visible = this.shieldHp > 0;
@@ -1101,6 +1253,7 @@ export class Enemy {
 
     if (this.type === 'wisp') return this.animateWisp(dt);
     if (this.type === 'mimic') return this.animateMimic(dt);
+    if (!this.model) return;
     const model = this.model;
     const an = model.animator;
     const d = this.def;
@@ -1259,6 +1412,13 @@ export class Enemy {
       this.wispBody.scale.setScalar(Math.max(0.01, this.scale * (1 - t * 3)));
       return t < 0.35;
     }
+    if (this.def.cage) {
+      // the bars burst apart; the captive is now an ally (spawned by the game)
+      const k = Math.max(0.01, 1 - t * 3);
+      this.mesh.scale.set(1 + t * 2, k, 1 + t * 2);
+      if (this.captive) this.captive.group.visible = false;
+      return t < 0.35;
+    }
     if (this.type === 'mimic') {
       // lid flops open, the chest keels over and sinks
       if (this.lid) this.lid.rotation.x += (this.lidBase - 1.6 - this.lid.rotation.x) * Math.min(1, dt * 8);
@@ -1300,5 +1460,6 @@ export class Enemy {
       m.dispose();
     }
     if (this.model) this.model.dispose();
+    if (this.captive) this.captive.dispose();
   }
 }

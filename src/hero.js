@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { CharacterModel } from './model.js';
 import { G, mat } from './rig.js';
+import { gearFx } from './legend.js';
 
 export const HERO_LOOKS = {
   knight: {
@@ -51,7 +52,7 @@ export function buildHero(clsId) {
   return model;
 }
 
-const GLOW = [0, 0.05, 0.1, 0.18, 0.3];
+const GLOW = [0, 0.05, 0.1, 0.18, 0.3, 0.45, 0.65];
 
 function clearExtras(model) {
   for (const o of model.addons || []) {
@@ -76,7 +77,7 @@ export function dressHero(model, equipment) {
 
   if (clsId === 'knight') {
     const sword = wt >= 2 ? '2H_Sword' : '1H_Sword';
-    show.push(sword, ['Round_Shield', 'Round_Shield', 'Rectangle_Shield', 'Badge_Shield', 'Spike_Shield', 'Spike_Shield'][at + 1], look.cape);
+    show.push(sword, ['Round_Shield', 'Round_Shield', 'Rectangle_Shield', 'Badge_Shield', 'Spike_Shield', 'Spike_Shield', 'Spike_Shield', 'Spike_Shield'][Math.min(7, at + 1)], look.cape);
     if (at >= 1) show.push('Knight_Helmet');
     tips = [sword];
   } else if (clsId === 'barbarian') {
@@ -100,10 +101,27 @@ export function dressHero(model, equipment) {
   model.only(look.gear, show);
   model.setTips(tips);
 
-  // weapon glows with its rarity
-  for (const n of look.gear) if (!/Cape|Hat|Helmet|Shield/.test(n)) model.glow(n, w ? w.rarity.hex : 0, w ? GLOW[wt] : 0);
+  // uniques and sets: weapon size and element, armour aura, charm orbit
+  const fxW = gearFx(w, equipment);
+  const fxA = gearFx(armor, equipment);
+  const fxC = gearFx(equipment.charm, equipment);
+  model.gearFx = { weapon: fxW, armor: fxA };
+
+  // weapon glows with its rarity (or its unique's element), and can be huge
+  const wHex = fxW && fxW.hex ? fxW.hex : w ? w.rarity.hex : 0;
+  const wGlow = w ? Math.max(GLOW[Math.min(6, wt)], fxW ? 0.55 : 0) : 0;
+  for (const n of look.gear) {
+    const part = model.parts[n];
+    if (!part || /Cape|Hat|Helmet|Shield|Mug|Spellbook/.test(n)) continue;
+    model.glow(n, wHex, wGlow);
+    if (part.userData.baseScale === undefined) part.userData.baseScale = part.scale.x;
+    part.scale.setScalar(part.userData.baseScale * (fxW && fxW.scale ? fxW.scale : 1));
+  }
+  // cursed / blessed armour: the whole hero smoulders in its colour
+  model.bodyGlow(fxA && fxA.aura ? fxA.aura : 0, fxA && fxA.aura ? (fxA.el === 'fire' ? 0.35 : 0.22) : 0, look.gear);
   // cape (and shield, for knights) take the armour's colour from magic up
-  if (at >= 1) model.tint(look.cape, armor.rarity.hex, at >= 3 ? 0.18 : 0);
+  if (fxA && fxA.aura) model.tint(look.cape, fxA.aura, 0.7);
+  else if (at >= 1) model.tint(look.cape, armor.rarity.hex, at >= 3 ? 0.18 : 0);
   else model.tint(look.cape, null);
   if (clsId === 'knight') for (const s of ['Rectangle_Shield', 'Badge_Shield', 'Spike_Shield']) model.glow(s, at >= 2 ? armor.rarity.hex : 0, at >= 2 ? GLOW[at] * 0.35 : 0);
 
@@ -119,7 +137,8 @@ export function dressHero(model, equipment) {
   // charm: a glowing gem orbiting the hero for epic and better
   const c = equipment.charm;
   if (c && c.rarity.tier >= 3) {
-    const orb = new THREE.Mesh(G.octa(0.08), mat(c.rarity.hex, { emissive: c.rarity.hex, ei: 1.6 }));
+    const hex = fxC && fxC.orbit ? fxC.orbit : c.rarity.hex;
+    const orb = new THREE.Mesh(G.octa(fxC ? 0.13 : 0.08), mat(hex, { emissive: hex, ei: fxC ? 2.4 : 1.6 }));
     orb.scale.set(1, 1.4, 1);
     model.extras.add(orb);
     model.addons.push(orb);

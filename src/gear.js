@@ -5,9 +5,10 @@ import * as THREE from 'three';
 import { G, mat, part } from './rig.js';
 import { applySurface, metalSurface, leatherSurface } from './textures.js';
 import { gearModel } from './assets.js';
+import { gearFx } from './legend.js';
 
 export function gearMats(tier, hex) {
-  const metal = new THREE.Color(0xb4bac4).lerp(new THREE.Color(hex), [0.02, 0.22, 0.35, 0.45, 0.55][tier]);
+  const metal = new THREE.Color(0xb4bac4).lerp(new THREE.Color(hex), [0.02, 0.22, 0.35, 0.45, 0.55, 0.65, 0.75][Math.min(6, tier)]);
   const M = {
     metal: mat(metal, { metal: 0.55, rough: 0.3, emissive: tier >= 3 ? hex : 0x000000, ei: 0.22 }),
     glow: mat(hex, { emissive: hex, ei: 1.6 }),
@@ -194,7 +195,9 @@ export function buildDropModel(item) {
     const m = name && gearModel(name);
     if (m) {
       const scale = { sword: 0.75, axe: 0.75, staff: 0.6, daggers: 0.9, bow: 0.8 }[item.wtype];
-      m.scale.setScalar(scale);
+      // unique weapons lie there as big as they'll be in your hands
+      const big = gearFx(item);
+      m.scale.setScalar(scale * (big && big.scale ? Math.min(1.8, big.scale * 0.85) : 1));
       m.position.y = item.wtype === 'bow' ? 0 : -0.45 * scale;
       const mats = [];
       m.traverse((o) => {
@@ -202,7 +205,7 @@ export function buildDropModel(item) {
         mats.push(o.material);
         if (tier >= 1) {
           o.material.emissive.setHex(hex);
-          o.material.emissiveIntensity = [0, 0.12, 0.25, 0.45, 0.7][tier];
+          o.material.emissiveIntensity = [0, 0.12, 0.25, 0.45, 0.7, 0.9, 1.1][Math.min(6, tier)];
         }
       });
       g.add(m);

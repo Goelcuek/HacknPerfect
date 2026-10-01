@@ -93,6 +93,25 @@ export class CharacterModel {
     p.material.userData.baseEI = intensity;
   }
 
+  // Emissive glow over the body (not the gear in `skip`): burning / frozen armour.
+  bodyGlow(hex, intensity, skip = []) {
+    const skipSet = new Set(skip.map((n) => this.parts[n]).filter(Boolean));
+    this.root.traverse((o) => {
+      if (!o.isMesh || skipSet.has(o)) return;
+      if (!o.userData.ownMat) {
+        o.material = o.material.clone();
+        o.userData.ownMat = true;
+        this.mats.push(o.material);
+      }
+      const m = o.material;
+      if (!m.emissive) return;
+      m.emissive.setHex(hex || 0x000000);
+      m.emissiveIntensity = hex ? intensity : 0;
+      m.userData.baseEmissive = m.emissive.clone();
+      m.userData.baseEI = m.emissiveIntensity;
+    });
+  }
+
   flash(hex, dur = 0.15, power = 0.45) {
     this.flashPower = power;
     this.flashCol.setHex(hex);

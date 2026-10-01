@@ -16,7 +16,7 @@ export class Input {
     this.lookDY = 0;
     this.lastLookTime = 0;
     this.attackHeld = false;
-    this.pressed = { jump: false, dash: false, attack: false, interact: false, pause: false };
+    this.pressed = { jump: false, dash: false, attack: false, interact: false, pause: false, ping: false, help: false };
     this.skillPressed = -1;
     this.isTouch = matchMedia('(pointer: coarse)').matches;
     this.onModeChange = null;
@@ -46,6 +46,8 @@ export class Input {
       ShiftRight: 'dash',
       KeyJ: 'attack',
       KeyF: 'interact',
+      KeyG: 'ping',
+      KeyH: 'help',
       Escape: 'pause',
       KeyP: 'pause',
     };

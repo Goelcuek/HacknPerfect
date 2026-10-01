@@ -1,8 +1,8 @@
 # Hack n Perfect
 
 A 3D hack-n-slash roguelike that runs in the browser on **phones and PCs**. Fight down through
-procedurally generated dungeons, collect loot, pick upgrades between floors, and take on a boss
-every 5 floors.
+20 procedurally generated floors to the Hollow God, collect loot, pick upgrades between floors,
+then keep going into the endless depths. Soul shards earned along the way buy permanent upgrades.
 
 Built with plain ES modules and [three.js](https://threejs.org) (vendored in `vendor/`, including
 the bloom, glTF and geometry-merging addons), so there is no build step. Heroes, monsters, weapons
@@ -39,7 +39,12 @@ effects and animations are mirrored on everyone's screen.
 
 Co-op rules:
 
-- **Loot is per player:** every kill, chest and barrel drops loot for each player separately.
+- **Loot is per player:** every kill, chest, barrel, goblin and trial drops loot for each player
+  separately, so nobody can grab everything; merchants, altars and freed prisoners are per player
+  too.
+- **Pings:** `G` marks what you're looking at (an enemy means **Attack!**, an item **Loot!**,
+  otherwise **Here!**), `H` calls for **Help!**. On phones, tap 📍 under the minimap. Everyone sees a
+  coloured marker in the world and on the minimap, plus a toast with your name.
 - **More monsters, more loot:** +40% monsters per extra player (each with +40% health per extra
   player), a higher item and potion drop chance per extra player, and one extra item per chest.
 - **See each other:** party members show on the minimap as coloured arrows (pinned to the edge
@@ -148,12 +153,64 @@ chains dashes between targets.
 | Dash          | `Shift`                     | **DASH** button                          |
 | Attack combo  | Left click / `J` (hold to chain) | Tap / hold **⚔**                     |
 | Skills        | `Q` `E` `R` `C` (or `1`–`4`) | **Swipe from ⚔** ↑ → ↓ ← (or tap the icon) |
-| Equip loot    | `F`                         | **Equip** on the loot card               |
+| Equip loot / use | `F`                      | **Equip** on the loot card, **Trade** / **Pray** / **Begin** on event cards |
+| Ping (co-op)  | `G` (smart ping), `H` (help) | 📍 under the minimap                    |
 | Pause         | `Esc` / `P`                 | ❚❚ button                                |
 | Music on/off  | `M`                         | **Music** in the pause menu              |
 
 ## Gameplay
 
+- **20 floors, then the endless.** Every 5th floor is a throne: **The Bone King** (5), the
+  burning **Infernal Colossus** (10), the frozen **Archlich Vael** (15) and **The Hollow God**
+  (20). Kings rain meteors, and the Hollow God calls echoes of the den lords at two-thirds and
+  one-third health. Killing the Hollow God wins the run: retire victorious or walk on into the
+  **endless depths**. From floor 21 every floor adds a stacking curse, the same for everyone:
+  Fortified, Bloodlust, Haste, Volatile (monsters explode), Elite Surge, Vampiric, Swarm, Arcane
+  Storm (lightning hunts you) and Thick Skin. Monster health grows 16% and damage 9% per endless
+  floor on top of that, while loot keeps pace and soul shards count double. The HUD shows the
+  floor (`7/20`, then `23 ∞`) and the active curses.
+- **Scaling.** Monsters get much tougher with depth, elites gain more affixes (up to four), and
+  den lords past floor 8 (and every king) come with elite affixes of their own. New elite affixes:
+  **Giant** (huge and tough) and **Splitting** (bursts into two). Gear power grows with the floor
+  and keeps compounding past 20; damage numbers switch to `12.3k` / `4.5M`.
+- **Legendary, Mythic and Primal loot.** Above Legendary there are **Mythic** (floor 8+, red) and
+  **Primal** (floor 15+, cyan) items. Legendaries often, Mythics always and Primals twice over
+  carry a **unique power** that changes how you play, and you can see it on your hero:
+  - **Weapons:** Hellbrand (hits ignite; ember trail), Worldsplitter (a door-sized blade: +40%
+    damage, +50% reach, every 3rd hit splits the earth), Stormcaller (chain lightning),
+    Bloodthirster (kills heal), Winter's Bite (chill and freeze), Headsman's End (executes under
+    20%) and Edge of Midas (triple gold, crits spray coins).
+  - **Armour:** Infernal Plate (you burn and scorch everything near you), Glacial Bulwark (frost
+    nova when hit), Thornmail (reflects 250%), Phoenix Mantle (rise from death once a floor),
+    Titan's Shell (you grow 35% bigger, +60% health, landings quake) and Shadowshroud (dashing
+    makes you shadow; the next hit deals triple damage).
+  - **Charms:** Ring of Blades (orbiting blades), Heart of the Comet (meteor every 5 s), Dragon
+    Hoard (gold heals), Chrono Sigil (skills sometimes come straight back), Wrath of Ages
+    (stacking damage per kill) and Soul Lantern (kills release homing souls).
+  Unique weapons are oversized and burn, crackle or drip with their element; unique and set armour
+  makes the whole hero glow and shed flames, frost, shadow or thorns. Other players see it too.
+- **Sets.** Green set pieces (epic and up, floor 3+) belong to one of five sets, each with a weapon,
+  armour and charm. Two pieces give a bonus, three give a power: **Inferno Lord's** (ignite, then a
+  burning aura and fire dashes), **Frost Tyrant's** (chill, then a frost nova every 6 s), **Storm
+  Sovereign's** (attack speed, then lightning on crits), **Bonelord's** (health and life steal,
+  then corpses explode) and **Giant-King's** (an enormous weapon, then you grow 40% and every blow
+  quakes the ground). The loot card shows the unique power, the set bonuses and how many pieces
+  you wear.
+- **Floor events** (from floor 2, not on throne floors), marked on the minimap:
+  - **Wandering merchant:** a showpiece (unique or set piece), two good items, an elixir and a
+    mystery cache.
+  - **Cursed altar:** pick one of two pacts for the floor, for example Blood (+60% damage, −35%
+    health), Greed (triple gold and double loot, but you deal less damage), Haste, Glass or War (a
+    legendary item now, and an elite warband with it).
+  - **Treasure Goblin:** flees and escapes through a rift after 22 s; catch it for a pile of gold
+    and a legendary item.
+  - **Trial Shrine:** survive three waves for a treasure chest.
+  - **Prisoner's cage:** break it and the freed hero fights at your side until the floor ends.
+- **Soul Forge.** Soul shards come from elites, den lords, kings, goblins, trials, every cleared
+  floor and victory, and you keep them when you die. Spend them on the title screen: Vigor, Might,
+  Bulwark, Fleetfoot, Fortune, Treasure Hunter (rarer loot), Starting Purse, Armory (start with a
+  rare or epic weapon), Second Wind (survive one killing blow per run) and Soul Siphon (more
+  shards).
 - **Low health warning.** Below 35% health the screen edges glow red, a heartbeat starts and the
   health bar pulses. Both beat faster and deeper as health runs out.
 - **Slay the den's lord.** Every floor has a boss den, the big room farthest along, where the
@@ -163,14 +220,14 @@ chains dashes between targets.
   they learn more tricks (summoning, novas). Killing the lord opens the portal and leaves a rich
   chest; the rest of the floor is optional. Stepping into the open portal asks before you go
   (**Enter** / `F`, or **Not yet**) and lists any unopened chests and items still on the ground,
-  so you can't fall in before looting the room. Every 5th floor is **The Bone King**'s throne. The
+  so you can't fall in before looting the room. Every 5th floor is a king's throne (above). The
   minimap marks enemies (red), elites (gold), bosses (purple), chests and loot; up on the map is
   the way the camera faces.
 - **Every floor is a different place.** Forgotten Crypt, Flooded Catacombs, Ember Halls, Bone
   Ossuary, Fungal Grotto, Frozen Vault, Blood Temple, Void Sanctum, Sunken Library and Gilded
   Treasury, one per floor, each with its own palette, fog, light, candles and torches, wall details,
   furniture and the monsters it favours. Corridors are 6 m wide.
-- **Loot shows on your hero.** Weapons, armor and charms drop in five rarities with random affixes.
+- **Loot shows on your hero.** Weapons, armor and charms drop in seven rarities (plus set pieces) with random affixes.
   Better weapons swap to bigger models (a two-handed greatsword for knights) and glow with their
   rarity; armor swaps the knight's shield, adds helmets, hats, spellbooks and capes dyed in the
   armor's rarity colour; epic+ charms orbit a gem around you and legendary armor crowns you with a
@@ -206,7 +263,8 @@ chains dashes between targets.
   monsters you killed stay dead, opened chests stay open, and you stand where you left off with
   your gear, skills, blessings, gold and health (closing on a reward screen reopens it).
   **Save & quit** is in the pause menu; **Abandon run** throws the save away.
-- **Death is permanent.** Dying ends the run and deletes its save. Your best floor is kept.
+- **Death is permanent.** Dying ends the run and deletes its save. Your best floor and your soul
+  shards are kept.
 
 ## Graphics
 
@@ -314,6 +372,11 @@ tune as a 16-bar AABA loop. That keeps the download at zero bytes.
 | `src/effects.js`  | Particles, slashes, rings, lightning, meteors, damage numbers   |
 | `src/audio.js`    | Synthesized WebAudio sound effects                              |
 | `src/music.js`    | Synthesized soundtrack: instruments, melody writer, scheduler   |
+| `src/legend.js`   | Unique powers, sets, gear looks and the powers runtime (procs)  |
+| `src/gameplay.js` | Run features: soul forge, events, trials, allies, victory, pings |
+| `src/events.js`   | Merchant, cursed altar, trial shrine, freed-prisoner allies     |
+| `src/endless.js`  | Endless-depths curses (stacking floor modifiers)                |
+| `src/meta.js`     | Soul Forge: shards and permanent upgrades (localStorage)        |
 | `assets/models/`  | Optimised KayKit characters, animation library, gear and props  |
 | `tools/build-assets.mjs` | Rebuilds `assets/models/` from the KayKit packs          |
 

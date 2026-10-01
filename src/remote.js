@@ -5,6 +5,7 @@
 
 import * as THREE from 'three';
 import { buildHero, dressHero } from './hero.js';
+import { emitGearFx } from './legend.js';
 import { CLASSES } from './classes.js';
 import { clamp, partyColor } from './utils.js';
 
@@ -36,8 +37,8 @@ function label(text, color = '#9fe8ff') {
 
 // Fake equipment from a look summary, enough for dressHero.
 function lookToEquipment(look) {
-  const it = (o) => (o ? { rarity: { tier: o.t, hex: o.h } } : null);
-  return { weapon: it(look.w), armor: it(look.a), charm: it(look.c) };
+  const it = (o, slot) => (o ? { slot, rarity: { tier: o.t, hex: o.h }, u: Array.isArray(o.u) ? o.u.slice(0, 2) : undefined, set: typeof o.s === 'string' ? o.s : undefined } : null);
+  return { weapon: it(look.w, 'weapon'), armor: it(look.a, 'armor'), charm: it(look.c, 'charm') };
 }
 
 export class RemotePlayer {
@@ -167,6 +168,7 @@ export class RemotePlayer {
       const t = this.localT;
       model.orbit.position.set(Math.cos(t * 2) * 0.7, 1.6 + Math.sin(t * 3) * 0.12, Math.sin(t * 2) * 0.7);
     }
+    if (this.mesh.visible && !this.dead) emitGearFx(model, this.game.effects, dt, g.position);
     const ground = this.game.dungeon ? this.game.dungeon.maxHeightUnder(this.x, this.z, 0.2) : 0;
     this.shadow.position.set(this.x, ground + 0.03, this.z);
     this.tag.material.opacity = this.dead ? 0.5 : 1;

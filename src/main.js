@@ -181,8 +181,9 @@ ui.bindMenus({
   title: toTitle,
   resume: () => game.resume(),
   quit: () => {
-    // abandoning a solo run throws its save away
+    // abandoning a solo run throws its save away (its soul shards are kept)
     if (!game.net.mode) clearSave();
+    if (game.inRun) game.bankRun(game.won);
     ui.hidePause();
     toTitle();
   },
@@ -201,6 +202,12 @@ ui.bindMenus({
   equip: () => game.equipNearItem(),
   salvage: () => game.salvageNearItem(),
   portalGo: () => game.enterPortal(),
+  useEvent: () => game.useEvent(),
+  ping: (k) => game.sendPing(k === 'here' ? 'here' : k),
+  forge: () => {
+    initAudio();
+    ui.showForge(toTitle);
+  },
   portalStay: () => game.declinePortal(),
   pause: () => game.pause(),
   quality: cycleQuality,

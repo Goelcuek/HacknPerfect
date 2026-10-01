@@ -3,7 +3,7 @@
 // replayed: monsters already killed, chests opened, barrels broken, loot on the
 // ground, the hero's stats, gear, skills, blessings and position.
 
-import { RARITIES, BLESSINGS } from './items.js';
+import { ALL_RARITIES, BLESSINGS } from './items.js';
 
 const KEY = 'hacknperfect.run';
 const VERSION = 4; // 2: more monsters per room, 3: raised platforms, 4: boss dens, wider corridors, new settings
@@ -23,7 +23,7 @@ export function packItem(it) {
 
 export function unpackItem(o) {
   if (!o) return null;
-  const rarity = RARITIES.find((r) => r.id === o.rarity) || RARITIES[0];
+  const rarity = ALL_RARITIES.find((r) => r.id === o.rarity) || ALL_RARITIES[0];
   return { ...o, rarity };
 }
 

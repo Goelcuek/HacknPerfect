@@ -2,6 +2,7 @@
 
 import { rng, weightedPick } from './utils.js';
 import { CLASSES, WEAPON_NAMES, ARMOR_NAMES } from './classes.js';
+import { UNIQUES, SETS, SET_IDS, rollUniques, uniquesOf } from './legend.js';
 
 export const RARITIES = [
   { id: 'common', tier: 0, name: 'Common', color: '#d8d8d8', hex: 0xd8d8d8, mult: 1.0, affixes: 0, w: 55 },
@@ -9,7 +10,18 @@ export const RARITIES = [
   { id: 'rare', tier: 2, name: 'Rare', color: '#ffd84a', hex: 0xffd84a, mult: 1.45, affixes: 2, w: 12 },
   { id: 'epic', tier: 3, name: 'Epic', color: '#c77dff', hex: 0xc77dff, mult: 1.75, affixes: 3, w: 4 },
   { id: 'legendary', tier: 4, name: 'Legendary', color: '#ff8c2e', hex: 0xff8c2e, mult: 2.1, affixes: 4, w: 1 },
+  // deeper down: mythic from floor 8, primal from floor 15 (two uniques, everything bigger)
+  { id: 'mythic', tier: 5, name: 'Mythic', color: '#ff3355', hex: 0xff3355, mult: 2.75, affixes: 5, w: 0.3, from: 8 },
+  { id: 'primal', tier: 6, name: 'Primal', color: '#2effd5', hex: 0x2effd5, mult: 3.6, affixes: 6, w: 0.1, from: 15 },
 ];
+// set pieces are their own colour, at legendary strength
+export const SET_RARITY = { id: 'set', tier: 4, name: 'Set', color: '#3dff8a', hex: 0x3dff8a, mult: 2.0, affixes: 3, w: 0 };
+export const ALL_RARITIES = [...RARITIES, SET_RARITY];
+
+// How strong gear is on a floor. Past floor 20 (endless) it keeps compounding.
+export function floorPower(f) {
+  return (3 + f * 1.7) * (f > 20 ? Math.pow(1.13, f - 20) : 1);
+}
 
 export const STAT_LABELS = {
   damage: ['Damage', (v) => `+${Math.round(v)}`],
@@ -24,6 +36,8 @@ export const STAT_LABELS = {
   cdr: ['Cooldown Red.', (v) => `+${Math.round(v * 100)}%`],
   skillPower: ['Skill Damage', (v) => `+${Math.round(v * 100)}%`],
   goldFind: ['Gold Find', (v) => `+${Math.round(v * 100)}%`],
+  hpPct: ['Max Health', (v) => `+${Math.round(v * 100)}%`],
+  armorPct: ['Armor', (v) => `+${Math.round(v * 100)}%`],
 };
 
 // how much each stat is "worth" for the quick comparison score
@@ -40,20 +54,22 @@ const STAT_WEIGHT = {
   cdr: 60,
   skillPower: 45,
   goldFind: 10,
+  hpPct: 80,
+  armorPct: 50,
 };
 
 const AFFIXES = [
-  { stat: 'dmgPct', roll: (f) => 0.05 + rng.next() * 0.07 + f * 0.003 },
+  { stat: 'dmgPct', roll: (f) => 0.05 + rng.next() * 0.07 + Math.min(f, 40) * 0.004 },
   { stat: 'attackSpeed', roll: () => 0.05 + rng.next() * 0.08 },
   { stat: 'crit', roll: () => 0.03 + rng.next() * 0.05 },
   { stat: 'critMult', roll: () => 0.15 + rng.next() * 0.25 },
-  { stat: 'maxHp', roll: (f) => 8 + f * 3 + rng.next() * 10 },
+  { stat: 'maxHp', roll: (f) => (8 + rng.next() * 10) * (floorPower(f) / 4.7) },
   { stat: 'lifesteal', roll: () => 0.01 + rng.next() * 0.02 },
   { stat: 'moveSpeed', roll: () => 0.04 + rng.next() * 0.05 },
   { stat: 'cdr', roll: () => 0.04 + rng.next() * 0.06 },
-  { stat: 'skillPower', roll: (f) => 0.08 + rng.next() * 0.12 + f * 0.004 },
+  { stat: 'skillPower', roll: (f) => 0.08 + rng.next() * 0.12 + Math.min(f, 40) * 0.005 },
   { stat: 'goldFind', roll: () => 0.1 + rng.next() * 0.2 },
-  { stat: 'armor', roll: (f) => 2 + f * 0.8 + rng.next() * 3 },
+  { stat: 'armor', roll: (f) => (2 + rng.next() * 3) * (floorPower(f) / 4.7) },
 ];
 
 const CHARM_NAMES = ['Amulet', 'Talisman', 'Ring', 'Sigil', 'Charm', 'Relic'];
@@ -62,7 +78,9 @@ const PREFIX = {
   magic: ['Tempered', 'Glinting', 'Runed', 'Honed'],
   rare: ['Gilded', 'Stormforged', 'Serpent', 'Blessed'],
   epic: ['Voidtouched', 'Dragonbone', 'Soulbound', 'Astral'],
-  legendary: ['Godslayer', 'Eternal', 'Worldender', 'Mythic'],
+  legendary: ['Godslayer', 'Eternal', 'Worldender', 'Fabled'],
+  mythic: ['Abyssal', 'Starforged', 'Doombringer', 'Titanic'],
+  primal: ['Primal', 'Primordial', 'Cataclysmic', 'Ascendant'],
 };
 
 export const SLOTS = ['weapon', 'armor', 'charm'];
@@ -70,20 +88,26 @@ export const SLOT_ICON = { weapon: '⚔️', armor: '🛡️', charm: '💎' };
 
 export function rollRarity(floor, bonus = 0, minRarity = 0) {
   // deeper floors and elites/chests shift odds toward better loot
-  const shift = floor * 0.6 + bonus;
-  const entries = RARITIES.map((r, i) => ({ r, w: r.w * (i === 0 ? Math.max(0.2, 1 - shift * 0.04) : 1 + shift * 0.08 * i) })).slice(minRarity);
+  const shift = Math.min(floor, 40) * 0.6 + bonus;
+  const entries = RARITIES.map((r, i) => ({ r, w: r.from && floor < r.from ? 0 : r.w * (i === 0 ? Math.max(0.2, 1 - shift * 0.04) : 1 + shift * 0.08 * i) })).slice(Math.min(minRarity, RARITIES.length - 1));
+  if (!entries.some((e) => e.w > 0)) return entries[0].r;
   return weightedPick(rng, entries).r;
 }
 
 // clsId decides the weapon type and naming so drops always suit the hero.
-export function generateItem(floor, clsId, rarityBonus = 0, minRarity = 0, slot = null) {
-  const rarity = rollRarity(floor, rarityBonus, minRarity);
+// o.set / o.unique force a set piece or a unique (rewards, merchant stock).
+export function generateItem(floor, clsId, rarityBonus = 0, minRarity = 0, slot = null, o = {}) {
+  let rarity = rollRarity(floor, rarityBonus, minRarity);
   slot = slot || rng.pick(SLOTS);
+  // epic or better can come as a set piece (from floor 3)
+  const setId = o.set || (rarity.tier >= 3 && rarity.tier <= 4 && floor >= 3 && rng.next() < 0.22 ? rng.pick(SET_IDS) : null);
+  if (setId) rarity = SET_RARITY;
+  const pw = floorPower(floor);
   const stats = {};
-  if (slot === 'weapon') stats.damage = (3 + floor * 1.6) * rarity.mult * (0.85 + rng.next() * 0.3);
+  if (slot === 'weapon') stats.damage = pw * rarity.mult * (0.85 + rng.next() * 0.3);
   if (slot === 'armor') {
-    stats.armor = (2 + floor * 1.2) * rarity.mult * (0.85 + rng.next() * 0.3);
-    stats.maxHp = (8 + floor * 4) * rarity.mult;
+    stats.armor = pw * 0.75 * rarity.mult * (0.85 + rng.next() * 0.3);
+    stats.maxHp = pw * 2.6 * rarity.mult;
   }
   let nAff = rarity.affixes + (slot === 'charm' ? 1 : 0);
   const pool = AFFIXES.slice();
@@ -91,10 +115,22 @@ export function generateItem(floor, clsId, rarityBonus = 0, minRarity = 0, slot 
     const a = pool.splice(Math.floor(rng.next() * pool.length), 1)[0];
     stats[a.stat] = (stats[a.stat] || 0) + a.roll(floor) * (0.8 + rarity.mult * 0.2);
   }
+  // uniques: often on legendaries, always on mythic, two on primal
+  let u = [];
+  if (!setId) {
+    const n = rarity.tier >= 6 ? 2 : rarity.tier >= 5 ? 1 : rarity.tier === 4 && (o.unique || rng.next() < 0.6) ? 1 : 0;
+    u = rollUniques(slot, n);
+  }
   const cls = CLASSES[clsId] || CLASSES.knight;
   const base = slot === 'weapon' ? rng.pick(WEAPON_NAMES[cls.weapon]) : slot === 'armor' ? rng.pick(ARMOR_NAMES[cls.id]) : rng.pick(CHARM_NAMES);
-  const name = `${rng.pick(PREFIX[rarity.id])} ${base}`;
+  let name;
+  if (setId) name = `${SETS[setId].name} ${base}`;
+  else if (u.length === 2) name = `${rng.pick(PREFIX[rarity.id])} ${UNIQUES[u[0]].name} of ${UNIQUES[u[1]].name.replace(/^(The |Edge of |Heart of the |Ring of |Wrath of |Ring of )/, '')}`;
+  else if (u.length === 1) name = rarity.tier >= 5 ? `${rng.pick(PREFIX[rarity.id])} ${UNIQUES[u[0]].name}` : UNIQUES[u[0]].name;
+  else name = `${rng.pick(PREFIX[rarity.id])} ${base}`;
   const item = { slot, rarity, name, stats, level: floor, visual: { variant: rng.int(0, 2), hue: rng.next() } };
+  if (u.length) item.u = u;
+  if (setId) item.set = setId;
   if (slot === 'weapon') item.wtype = cls.weapon;
   return item;
 }
@@ -103,6 +139,9 @@ export function itemScore(item) {
   if (!item) return 0;
   let s = 0;
   for (const k in item.stats) s += item.stats[k] * (STAT_WEIGHT[k] || 1);
+  // a unique power or set bonus is worth a lot on its own
+  s += uniquesOf(item).length * (40 + item.level * 6);
+  if (item.set) s += 30 + item.level * 4;
   return s;
 }
 
