@@ -1643,3 +1643,40 @@ body:not(.touch) .pin-pad {
   padding: 6px 10px;
   font-size: 13px;
 }
+
+/* PvP: host's mode choice and the arena scoreboard */
+.mode-toggle {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.mode-toggle .mode {
+  flex: 1 1 160px;
+  max-width: 220px;
+  opacity: 0.6;
+}
+.mode-toggle .mode.sel {
+  opacity: 1;
+  border-color: var(--accent);
+  box-shadow: 0 0 12px rgba(255, 207, 90, 0.35);
+}
+#pvpBoard {
+  position: absolute;
+  top: calc(10px + var(--safe-t));
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(10, 8, 18, 0.7);
+  border: 1px solid rgba(255, 112, 112, 0.5);
+  border-radius: 10px;
+  padding: 4px 12px;
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
+}
+#pvpBoard small {
+  color: var(--muted);
+  font-weight: 500;
+  margin-right: 6px;
+}

@@ -57,6 +57,8 @@
       </div>
       <button id="pauseBtn" class="ui-block" data-btn="pause" aria-label="Pause">❚❚</button>
 
+      <div id="pvpBoard" class="hidden"></div>
+
       <div id="bossbar" class="hidden">
         <div id="bossName">The Bone King</div>
         <div class="bar"><div id="bossFill"></div></div>
@@ -146,6 +148,10 @@
           <div id="mpHost" class="hidden">
             <p class="subtitle">Share this PIN. Friends can join any time, even mid-run.</p>
             <div id="mpPin" class="pin-big">······</div>
+            <div class="mode-toggle">
+              <button id="modeCoop" class="mode sel"><b>🤝 Co-op dungeon</b><small>fight down together</small></button>
+              <button id="modePvp" class="mode"><b>⚔ PvP arena</b><small>everyone for themselves</small></button>
+            </div>
             <p id="mpHostStatus" class="mp-status"></p>
             <div class="row-buttons">
               <button id="mpHostGo" class="primary" disabled>Choose your hero</button>

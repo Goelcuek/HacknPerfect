@@ -139,6 +139,7 @@ let chosenClass = 'knight';
 
 function toTitle() {
   if (game.net.mode) game.net.leave();
+  game.arena = false;
   game.state = 'title';
   game.setupBackdrop(chosenClass);
   ui.savedRun = readSave();
@@ -234,12 +235,17 @@ ui.bindMultiplayer({
     try {
       const pin = await game.net.host();
       ui.showMultiplayer('host', { pin, status: 'Ready! Friends can join now — or later, mid-run.' });
+      ui.setHostMode(game.net.gameMode);
     } catch (e) {
       ui.showMultiplayer('host', {});
       ui.mpStatus(e.message, true);
     }
   },
   hostGo: toClassSelect,
+  mode: (m) => {
+    game.net.gameMode = m;
+    ui.mpStatus(m === 'arena' ? 'PvP arena: everyone fights everyone. First to 10 kills wins the round.' : 'Co-op: fight down the dungeon together.');
+  },
   cancel: () => {
     game.net.leave();
     ui.showMultiplayer('choose');
@@ -446,6 +452,7 @@ function updateMusic() {
   if (st === 'title' || st === 'classSelect') return setTrack('title');
   if (st === 'dead' || !game.dungeon) return setTrack(null);
   const b = game.boss;
+  if (game.arena) return setTrack('boss');
   if (b && b.alive && b.aggro) return setTrack(game.dungeon.isBoss ? 'throne' : 'boss');
   setTrack(game.dungeon.theme.id);
 }

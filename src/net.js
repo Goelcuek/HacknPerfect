@@ -47,6 +47,7 @@ export class Net {
   constructor(game) {
     this.game = game;
     this.mode = null; // 'host' | 'client' | null
+    this.gameMode = 'coop'; // what the host is running: 'coop' dungeon or the PvP 'arena'
     this.peer = null;
     this.pin = null;
     this.myId = 0;
@@ -164,6 +165,7 @@ export class Net {
     this.peer?.destroy();
     this.peer = null;
     this.mode = null;
+    this.gameMode = 'coop';
     this.pin = null;
     this.game.ui.setParty?.(null);
   }
@@ -253,7 +255,7 @@ export class Net {
   welcome(id) {
     const g = this.game;
     const players = [this.playerInfo(0), ...[...this.remotes.keys()].filter((k) => k !== id).map((k) => this.playerInfo(k))];
-    this.sendTo(id, 'welcome', { id, floor: g.floor, seed: g.floorSeed, x: g.player.x, z: g.player.z, pin: this.pin, players });
+    this.sendTo(id, 'welcome', { id, floor: g.floor, seed: g.floorSeed, x: g.player.x, z: g.player.z, pin: this.pin, players, arena: g.arena ? 1 : 0, pvp: g.arena ? g.pvp : undefined });
   }
 
   // The host started a (new) run: bring everyone who said hello into it.
@@ -292,7 +294,7 @@ export class Net {
         const info = { cls: m.cls, look: m.look || {}, name: `P${id + 1}` };
         this.hellos.set(id, info);
         if (!g.inRun) {
-          this.sendTo(id, 'wait');
+          this.sendTo(id, 'wait', { arena: this.gameMode === 'arena' ? 1 : 0 });
           this.status(`${info.name} is in! ${this.hellos.size + 1} players — enter the dungeon when ready.`);
           return;
         }
@@ -341,6 +343,16 @@ export class Net {
       case 'enter':
         if (g.floorCleared && g.state !== 'upgrade') g.enterPortal(true);
         return;
+      case 'pvphit': {
+        // pass a hit on to its victim (or take it, if it's us)
+        const k = { a: m.a, c: m.c, k: m.k, x: m.x, z: m.z, s: m.s, from: id };
+        if (+m.to === (this.myId ?? 0)) g.onPvpHit(k);
+        else if (this.remotes.has(+m.to)) this.sendTo(+m.to, 'pvphit', k);
+        return;
+      }
+      case 'pvpdeath':
+        if (g.arena) g.onPvpDeath(+m.by, id);
+        return;
       case 'trial': {
         const ev = (g.events || []).find((e) => e.i === m.i && e.kind === 'trial');
         if (ev && !ev.used) g.startTrial(ev);
@@ -359,7 +371,7 @@ export class Net {
         }
         return;
       case 'sync':
-        if (m.f === g.floor) this.sendTo(id, 'espawn', { f: g.floor, list: g.enemies.filter((e) => e.alive).map((e) => this.spawnInfo(e)), portal: g.floorCleared ? 1 : 0 });
+        if (m.f === g.floor) this.sendTo(id, 'espawn', { f: g.floor, list: g.enemies.filter((e) => e.alive && !e.rival).map((e) => this.spawnInfo(e)), portal: g.floorCleared ? 1 : 0 });
         return;
       default:
     }
@@ -421,7 +433,8 @@ export class Net {
         this.status('That game is full (4 players)');
         return;
       case 'wait':
-        this.status('Connected! Waiting for the host to enter the dungeon…');
+        this.gameMode = m.arena ? 'arena' : 'coop';
+        this.status(m.arena ? 'Connected! The host is running a ⚔ PvP Arena — waiting for them to start…' : 'Connected! Waiting for the host to enter the dungeon…');
         g.ui.toast('Waiting for the host to enter the dungeon…', 3);
         return;
       case 'welcome': {
@@ -527,6 +540,18 @@ export class Net {
       case 'next':
         g.beginNextFloor(m.f, m.seed);
         return;
+      case 'pvphit':
+        g.onPvpHit(m);
+        return;
+      case 'pvpscore':
+        g.applyPvpScore(m);
+        return;
+      case 'pvpwin':
+        g.applyPvpWin(m);
+        return;
+      case 'pvpround':
+        g.applyPvpRound();
+        return;
       case 'trialdone':
         if (m.f === g.floor) g.trialReward(m.i);
         return;
@@ -572,7 +597,7 @@ export class Net {
     const rt = g.netClock - 0.1;
     const p = g.player;
     for (const e of g.enemies) {
-      if (!e.alive) continue;
+      if (!e.alive || e.rival) continue;
       // knockback from our own hits goes to the host
       if (Math.abs(e.kx) + Math.abs(e.kz) > 0.01) {
         this.send('knock', { id: e.id, kx: r2(e.kx), kz: r2(e.kz) });
@@ -724,7 +749,7 @@ export class Net {
           if (!r || !c.open || r.floor !== g.floor) continue;
           const list = [];
           for (const e of g.enemies) {
-            if (!e.alive || (Math.hypot(e.x - r.x, e.z - r.z) > 50 && !e.def.boss)) continue;
+            if (!e.alive || e.rival || (Math.hypot(e.x - r.x, e.z - r.z) > 50 && !e.def.boss)) continue;
             const f = (e.aggro ? 1 : 0) | (e.dormant ? 2 : 0) | (e.disguised ? 4 : 0) | (e.rising > 0 ? 8 : 0) | (e.freeze > 0 ? 16 : 0) | (e.burn > 0 ? 32 : 0) | (e.poison > 0 || e.bleed > 0 ? 64 : 0) | (e.stun > 0 || e.blind > 0 ? 128 : 0) | (e.shieldHp > 0 ? 256 : 0);
             list.push([e.id, Math.round(e.x * 100), Math.round(e.z * 100), Math.round(e.y * 100), Math.round(e.heading * 100), Math.round(e.hp), f, Math.max(0, STATES.indexOf(e.state))]);
           }
@@ -735,7 +760,7 @@ export class Net {
       this.overT -= dt;
       if (this.overT <= 0) {
         this.overT = 0.5;
-        if (p.dead && [...this.remotes.values()].every((r) => r.dead || r.floor !== g.floor)) {
+        if (!g.arena && p.dead && [...this.remotes.values()].every((r) => r.dead || r.floor !== g.floor)) {
           this.broadcast('over');
           g.gameOver();
         }
@@ -743,7 +768,7 @@ export class Net {
     }
 
     // downed: a teammate standing next to you brings you back
-    if (p.dead && g.state === 'play') {
+    if (p.dead && g.state === 'play' && !g.arena) {
       const helper = [...this.remotes.values()].find((r) => !r.dead && r.floor === g.floor && !r.inMenu && Math.hypot(r.x - p.x, r.z - p.z) < 1.9);
       if (helper) {
         this.reviveT += dt;

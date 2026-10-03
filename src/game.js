@@ -7,6 +7,7 @@ import { Dungeon, T, denBossForFloor } from './dungeon.js';
 import { Player } from './player.js';
 import { Enemy, ENEMY_TYPES, sharedEnemyMaterials, throneBossForFloor } from './enemies.js';
 import { installRunFeatures } from './gameplay.js';
+import { installPvp, ARENA_FLOOR } from './pvp.js';
 import { Effects, Trail } from './effects.js';
 import { generateItem, rollBlessings, itemScore, RARITIES } from './items.js';
 import { SKILLS, MAX_SKILL_LEVEL, skillDef } from './skills.js';
@@ -157,6 +158,7 @@ export class Game {
   }
 
   applyShadows(obj) {
+    if (!obj) return;
     const on = this.quality === 'high';
     obj.traverse((o) => {
       if (o.isMesh && !o.material.transparent && !o.userData.noShadow) o.castShadow = on;
@@ -244,9 +246,18 @@ export class Game {
     this.runShards = 0;
     this.won = false;
     this.floor = 0;
-    this.applyForge(this.player, true);
     this.runTime = 0;
     this.catchUp = 0;
+    // a hosted PvP arena instead of the dungeon
+    this.arena = this.net.isHost && this.net.gameMode === 'arena';
+    if (this.arena) {
+      this.arenaKit(this.player);
+      this.loadFloor(ARENA_FLOOR, true);
+      this.net.onRunStarted();
+      this.beginArena();
+      return;
+    }
+    this.applyForge(this.player, true);
     this.loadFloor(1);
     this.state = 'skillpick';
     this.input.reset();
@@ -265,8 +276,20 @@ export class Game {
     this.giveStarterWeapon(this.player);
     this.runShards = 0;
     this.won = false;
-    this.applyForge(this.player, true);
+    this.arena = !!w.arena;
     this.runTime = 0;
+    if (this.arena) {
+      this.arenaKit(this.player);
+      this.ui.hideScreens?.();
+      this.ui.hidePause?.();
+      this.ui.hideSkillPick?.();
+      this.ui.showHUD();
+      this.loadFloor(w.floor, true, w.seed);
+      this.beginArena();
+      if (w.pvp) this.pvp = { scores: w.pvp.scores || {}, over: !!w.pvp.over };
+      return;
+    }
+    this.applyForge(this.player, true);
     this.ui.hideScreens?.();
     this.ui.hidePause?.();
     this.ui.hideSkillPick?.();
@@ -321,6 +344,7 @@ export class Game {
     for (const c of this.scene.children.slice()) if (c.userData.isLevel) this.scene.remove(c);
     for (const list of [this.enemies, this.projectiles, this.pickups, this.chests, this.pots, this.patches, this.zones, this.corpses, this.traps]) {
       for (const o of list) {
+        if (o.rival) continue;
         if (o.mesh) this.scene.remove(o.mesh);
         if (o.dispose) o.dispose();
         if (o.mesh && o.mesh.userData.dispose) o.mesh.userData.dispose();
@@ -344,7 +368,7 @@ export class Game {
     this.enterSent = false;
     this.portalAsk = this.portalDeclined = false;
     this.ui.setPortalCard(null);
-    const dg = new Dungeon(n, this.floorSeed, this.net.isHost ? this.net.partySize : 1);
+    const dg = new Dungeon(n, this.floorSeed, this.net.isHost ? this.net.partySize : 1, { arena: !!this.arena });
     this.dungeon = dg;
     const levelGroup = dg.buildMeshes(this.quality);
     levelGroup.userData.isLevel = true;
@@ -400,6 +424,7 @@ export class Game {
     dg.pots.forEach((pt, i) => !this.brokenPots.has(i) && this.spawnPot(pt.x, pt.z, i));
     for (const tr of dg.traps || []) this.spawnTrap(tr);
     this.spawnPortal(ex.x, ex.z);
+    if (this.arena) this.portal.mesh.visible = false;
     this.setupFloorFeatures(restore);
     this.flowTimer = 0;
     this.revealTimer = 0;
@@ -1220,6 +1245,7 @@ export class Game {
 
   damageEnemy(e, hit, fromX, fromZ) {
     if (!e.alive) return;
+    if (e.rival) return this.damageRival(e, hit, fromX, fromZ);
     const p = this.player;
     let amount = hit.amount;
     // our own direct hits: wrath / shadow bonuses, and afterwards the gear's procs
@@ -1508,7 +1534,7 @@ export class Game {
       this.fxCtx = 'enemy';
       this.enemyFrame = (this.enemyFrame || 0) + 1;
       for (const e of this.enemies.slice()) {
-        if (!e.alive) continue;
+        if (!e.alive || e.rival) continue;
         // out of sight and far from every player: think at 20 Hz (with the time
         // they skipped), which matters with a whole floor chasing across the map
         e.far = !e.def.boss && !e.seen && this.nearestPlayerDist(e) > 28;
@@ -1529,6 +1555,7 @@ export class Game {
     this.updatePickups(dt);
     this.updateInteractables(dt);
     this.updateFloorFeatures(dt, controls);
+    if (this.arena) this.updateArena(dt);
     this.updateTraps(dt);
     if (this.comboT > 0) this.comboT -= dt;
     this.updatePatches(dt);
@@ -1565,7 +1592,7 @@ export class Game {
     if (input.pressed.help) this.sendPing('help');
     if (this.pings) for (const q of this.pings) q.t -= rawDt;
 
-    if (p.dead && this.state === 'play') {
+    if (p.dead && this.state === 'play' && !this.arena) {
       if (this.net.live) {
         // co-op: stay down until a teammate revives you (or everyone falls)
         if (!this.downToast) {
@@ -1662,7 +1689,7 @@ export class Game {
 
   separateEnemies() {
     // monsters far from everyone aren't worth pushing apart every frame
-    const es = this.enemies.filter((e) => !e.far);
+    const es = this.enemies.filter((e) => !e.far && !e.rival);
     const dg = this.dungeon;
     const p = this.player;
     for (let i = 0; i < es.length; i++) {
@@ -2057,6 +2084,7 @@ export class Game {
     this.comboT = 0;
     this.bestCombo = 0;
     this.catchUp = 0;
+    this.arena = false;
     this.setPlayer(new Player(this, s.cls));
     const p = this.player;
     this.runShards = s.shards || 0;
@@ -2264,3 +2292,4 @@ export class Game {
 }
 
 installRunFeatures(Game);
+installPvp(Game);

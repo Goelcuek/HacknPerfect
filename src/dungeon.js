@@ -38,10 +38,12 @@ export class Dungeon {
   // party: players in a multiplayer run; only the host passes it (it alone spawns
   // monsters), and the extra monsters come from their own random stream so the
   // layout, chests and barrels stay identical on every player's machine.
-  constructor(floor, seed, party = 1) {
+  constructor(floor, seed, party = 1, o = {}) {
     this.floor = floor;
     this.rng = makeRng(seed);
-    this.isBoss = floor % 5 === 0;
+    // the PvP arena: one big room with platforms and pillars, no monsters
+    this.arena = !!o.arena;
+    this.isBoss = !this.arena && floor % 5 === 0;
     this.theme = themeForFloor(floor);
     this.endless = endlessEffects(floor);
     this.generate();
@@ -51,7 +53,7 @@ export class Dungeon {
   // ---------------------------------------------------------------- generation
   generate() {
     const r = this.rng;
-    const W = this.isBoss ? 44 : clamp(46 + Math.floor(this.floor * 1.5), 46, 64);
+    const W = this.arena ? 38 : this.isBoss ? 44 : clamp(46 + Math.floor(this.floor * 1.5), 46, 64);
     const H = W;
     this.w = W;
     this.h = H;
@@ -61,7 +63,9 @@ export class Dungeon {
     this.seen = new Uint8Array(W * H);
     this.rooms = [];
 
-    if (this.isBoss) {
+    if (this.arena) {
+      this.rooms.push({ x: 3, z: 3, w: W - 6, h: H - 6, arena: true });
+    } else if (this.isBoss) {
       this.rooms.push({ x: 3, z: Math.floor(H / 2) - 4, w: 8, h: 8 });
       this.rooms.push({ x: 18, z: Math.floor(H / 2) - 10, w: 20, h: 20, boss: true });
     } else {
@@ -147,7 +151,7 @@ export class Dungeon {
     this.chests = [];
     this.pots = [];
     for (const room of this.rooms) {
-      if (room === this.startRoom) continue;
+      if (room === this.startRoom && !this.arena) continue;
       this.decorateRoom(room);
     }
     this.placeProps();
@@ -265,6 +269,27 @@ export class Dungeon {
     const r = this.rng;
     // keep the central cross clear so corridors always connect through the room
     const clearOfCross = (x, z) => Math.abs(x - room.cx) > 1 && Math.abs(z - room.cz) > 1 && Math.abs(x + 1 - room.cx) > 1 && Math.abs(z + 1 - room.cz) > 1;
+    if (room.arena) {
+      // the PvP arena: a central dais, a balcony, corner perches, and pillars to duck behind
+      this.raiseDais(room);
+      this.raiseBalcony(room);
+      this.raiseCorners(room, 2);
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+        const x = Math.round(room.cx + Math.cos(a) * 9);
+        const z = Math.round(room.cz + Math.sin(a) * 9);
+        if (this.flatGround(x, z)) this.set(x, z, TILE.PILLAR);
+      }
+      for (let i = 0; i < 6; i++) {
+        const x = r.int(room.x + 4, room.x + room.w - 6);
+        const z = r.int(room.z + 4, room.z + room.h - 6);
+        if (this.flatGround(x, z) && this.flatGround(x + 1, z)) {
+          this.set(x, z, TILE.BLOCK);
+          this.set(x + 1, z, TILE.BLOCK);
+        }
+      }
+      return;
+    }
     if (room.den) {
       // the den: four great pillars, open floor for the fight
       for (const [ox, oz] of [
@@ -511,6 +536,12 @@ export class Dungeon {
 
   placeContent() {
     const r = this.rng;
+    this.traps = [];
+    if (this.arena) {
+      // a few barrels to smash for potions mid-fight
+      for (let i = 0; i < 6; i++) this.pots.push(this.randomFloorIn(this.startRoom, 2));
+      return;
+    }
     const f = this.floor;
     const pool = enemyPoolForFloor(f, this.theme);
     for (const room of this.rooms) {
@@ -568,7 +599,7 @@ export class Dungeon {
   placeEvents() {
     this.events = [];
     const f = this.floor;
-    if (f < 2 || this.isBoss) return;
+    if (f < 2 || this.isBoss || this.arena) return;
     const r = this.rng;
     const rooms = this.rooms.filter((rm) => rm !== this.startRoom && !rm.boss && !rm.den);
     if (!rooms.length) return;

@@ -37,6 +37,24 @@ dungeon, the monsters, the portal and floor changes; every player moves and figh
 hero locally (so controls feel instant) and sends hits to the host. Skills, projectiles, ground
 effects and animations are mirrored on everyone's screen.
 
+### PvP arena
+
+When hosting, pick **⚔ PvP arena** instead of **🤝 Co-op dungeon** (under the PIN). Everyone
+then fights everyone in one big arena room with a central dais, a balcony, corner perches,
+pillars and cover:
+
+- **Fair start:** every hero gets plain epic gear for their class and their first four skills at
+  level 3. Soul Forge upgrades don't apply.
+- **Deathmatch:** your attacks, skills and projectiles all hit the other players, and auto-aim
+  targets them. Player-on-player damage is scaled to 35% so fights last a few exchanges; armour
+  still counts and dashing still dodges. Unique powers that react to hits (Thornmail, Glacial
+  Bulwark) work against players too.
+- **Respawn:** a slain hero comes back after 3 seconds at the spawn spot farthest from everyone
+  else, with full health and 2 seconds of protection.
+- **Rounds:** first to **10 kills** wins. The scoreboard sits at the top of the screen, and a kill
+  feed names who slew whom. A new round starts 7 seconds after a win.
+- **Joining:** friends can join a running arena at any time, and barrels hold potions mid-fight.
+
 Co-op rules:
 
 - **Loot is per player:** every kill, chest, barrel, goblin and trial drops loot for each player
@@ -377,6 +395,7 @@ tune as a 16-bar AABA loop. That keeps the download at zero bytes.
 | `src/events.js`   | Merchant, cursed altar, trial shrine, freed-prisoner allies     |
 | `src/endless.js`  | Endless-depths curses (stacking floor modifiers)                |
 | `src/meta.js`     | Soul Forge: shards and permanent upgrades (localStorage)        |
+| `src/pvp.js`      | PvP arena: rival targets, hits between players, respawns, score |
 | `assets/models/`  | Optimised KayKit characters, animation library, gear and props  |
 | `tools/build-assets.mjs` | Rebuilds `assets/models/` from the KayKit packs          |
 

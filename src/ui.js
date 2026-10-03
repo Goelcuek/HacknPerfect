@@ -326,13 +326,22 @@ export class UI {
     css($('hpFill'), 'width', `${((100 * Math.max(0, p.hp)) / f.maxHp).toFixed(1)}%`);
     css($('shieldFill'), 'width', `${Math.min(100, (100 * p.shield) / f.maxHp).toFixed(1)}%`);
     text($('hpText'), `${Math.ceil(Math.max(0, p.hp))} / ${f.maxHp}`);
-    text($('floorText'), game.floor > 20 ? `Floor ${game.floor} ∞` : `Floor ${game.floor}/20`);
+    text($('floorText'), game.arena ? 'PvP' : game.floor > 20 ? `Floor ${game.floor} ∞` : `Floor ${game.floor}/20`);
     text($('goldText'), `💰 ${fmtNum(p.gold)}`);
     text($('shardText'), `💠 ${fmtNum(game.runShards || 0)}`);
     this.setClass($('pingWrap'), 'hidden', !game.net.live);
+    this.setClass($('shardText'), 'hidden', !!game.arena);
     const wr = p.pw.buffText();
     text($('modsText'), (game.floor > 20 ? `∞ ${modsLabel(game.floor)}` : '') + (game.pact ? ` ${game.pact.icon} ${game.pact.name}` : '') + (wr ? ` ${wr}` : ''));
-    text($('enemyText'), game.floorCleared ? '✦ Portal open' : `👹 ${game.enemies.filter((e) => !e.disguised).length}`);
+    text($('enemyText'), game.arena ? '⚔ Arena' : game.floorCleared ? '✦ Portal open' : `👹 ${game.enemies.filter((e) => !e.disguised).length}`);
+    this.setClass($('pvpBoard'), 'hidden', !game.arena);
+    if (game.arena) {
+      const board = `<small>First to ${game.pvpKillLimit()}</small>${game.pvpBoard()}`;
+      if (board !== this.lastBoard) {
+        this.lastBoard = board;
+        $('pvpBoard').innerHTML = board;
+      }
+    }
     // combo counter
     const combo = game.comboT > 0 ? game.combo : 0;
     const cEl = $('combo');
@@ -453,7 +462,7 @@ export class UI {
     const seenAt = (wx, wz) => dg.seen[Math.floor(wz / 2) * dg.w + Math.floor(wx / 2)];
     for (const c of game.chests) if (!c.open && seenAt(c.x, c.z)) dot(c.x, c.z, '#ffd34d', 3);
     for (const pk of game.pickups) if (pk.kind === 'item') dot(pk.x, pk.z, pk.item.rarity.color, 2.5);
-    for (const e of game.enemies) if (e.aggro || seenAt(e.x, e.z)) dot(e.x, e.z, e.def.boss ? '#c04dff' : e.elite ? '#ffc94a' : '#ff4a4a', e.def.boss ? 5 : 2.5);
+    for (const e of game.enemies) if (!e.rival && (e.aggro || seenAt(e.x, e.z))) dot(e.x, e.z, e.def.boss ? '#c04dff' : e.elite ? '#ffc94a' : '#ff4a4a', e.def.boss ? 5 : 2.5);
     const pt = game.portal;
     if (seenAt(pt.x, pt.z) || game.floorCleared) dot(pt.x, pt.z, pt.active ? '#b18cff' : '#666', 5);
     // merchants and altars, and the party's pings (pulsing)
@@ -762,6 +771,14 @@ export class UI {
     $('mpJoinBtn').onclick = () => this.showMultiplayer('join');
     $('mpHostGo').onclick = h.hostGo;
     $('mpHostCancel').onclick = h.cancel;
+    const setMode = (m) => {
+      h.mode(m);
+      $('modeCoop').classList.toggle('sel', m === 'coop');
+      $('modePvp').classList.toggle('sel', m === 'arena');
+    };
+    $('modeCoop').onclick = () => setMode('coop');
+    $('modePvp').onclick = () => setMode('arena');
+    this.setHostMode = setMode;
     $('mpJoinCancel').onclick = h.cancel;
     $('mpJoinGo').onclick = () => this.pin.length === 6 && h.join(this.pin);
     $('pinInput').oninput = (e) => this.setPin(e.target.value);
