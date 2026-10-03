@@ -210,25 +210,19 @@ export class Player {
   }
 
   // ----------------------------------------------------------------- stats
-  recompute() {
+  // Final stats for a set of gear (pure: nothing on the hero changes). Uniques and
+  // set bonuses add stats; the soul forge and the floor's altar pact count too.
+  statsFor(equipment) {
     const s = { ...this.stats, hpPct: 0, armorPct: 0 };
     for (const slot of SLOTS) {
-      const it = this.equipment[slot];
+      const it = equipment[slot];
       if (!it) continue;
       for (const k in it.stats) s[k] = (s[k] || 0) + it.stats[k];
     }
-    // uniques and set bonuses: stats, mods (reach, size) and powers
-    const gb = gearBonuses(this.equipment);
+    const gb = gearBonuses(equipment);
     for (const k in gb.stats) s[k] = (s[k] || 0) + gb.stats[k];
-    for (const k in this.gearMods) this.mods[k] -= this.gearMods[k];
-    this.gearMods = gb.mods;
-    for (const k in gb.mods) this.mods[k] = (this.mods[k] || 0) + gb.mods[k];
-    this.pw.set = gb.powers;
-    this.setCounts = gb.counts;
-    // soul forge upgrades and the floor's altar pact
     for (const src of [this.meta, this.pact]) if (src) for (const k in src.stats || {}) s[k] = (s[k] || 0) + src.stats[k];
-    const prevMax = this.final ? this.final.maxHp : null;
-    this.final = {
+    const final = {
       maxHp: Math.max(1, Math.round(s.maxHp * (1 + s.hpPct))),
       damage: s.damage * (1 + s.dmgPct),
       armor: s.armor * (1 + s.armorPct),
@@ -242,6 +236,21 @@ export class Player {
       goldMult: 1 + s.goldFind,
       dmgTakenMul: 1 + (s.dmgTakenPct || 0),
     };
+    final.dmgTaken = this.armorTaken(final.armor, final.dmgTakenMul);
+    return { final, gb };
+  }
+
+  recompute() {
+    const { final, gb } = this.statsFor(this.equipment);
+    // gear mods (reach, size) and powers come and go with the gear
+    for (const k in this.gearMods) this.mods[k] -= this.gearMods[k];
+    this.gearMods = gb.mods;
+    for (const k in gb.mods) this.mods[k] = (this.mods[k] || 0) + gb.mods[k];
+    this.pw.set = gb.powers;
+    this.setCounts = gb.counts;
+    const prevMax = this.final ? this.final.maxHp : null;
+    this.final = final;
+    this.gearVersion = (this.gearVersion || 0) + 1;
     this.updateArmor();
     if (prevMax !== null && this.hp !== undefined) {
       if (this.final.maxHp > prevMax) this.hp += this.final.maxHp - prevMax;
@@ -249,12 +258,40 @@ export class Player {
     }
   }
 
-  updateArmor() {
-    const a = this.final.armor + (this.buff ? this.buff.armor : 0);
-    // armour keeps pace with deeper floors: its worth is relative to the gear of the floor
+  // Share of damage that gets through armour. Armour keeps pace with deeper floors:
+  // its worth is relative to the gear of the floor.
+  armorTaken(armor, mul = 1) {
     const fl = this.game.floor || 1;
     const k = 50 * (1 + Math.max(0, fl - 1) * 0.04) * (fl > 20 ? Math.pow(1.13, fl - 20) : 1);
-    this.final.dmgTaken = (k / (k + Math.max(0, a))) * (this.final.dmgTakenMul || 1);
+    return (k / (k + Math.max(0, armor))) * mul;
+  }
+
+  updateArmor() {
+    const a = this.final.armor + (this.buff ? this.buff.armor : 0);
+    this.final.dmgTaken = this.armorTaken(a, this.final.dmgTakenMul || 1);
+  }
+
+  // Hero power: one number for how strong a set of gear makes you. Offence is damage
+  // per second from attacks and skills (with crits, cooldowns and life steal); toughness
+  // is effective health (health through armour). Power is their geometric mean, and
+  // each unique power or set power on top is valued at +10%.
+  powerOf(equipment) {
+    const { final: f, gb } = this.statsFor(equipment);
+    const crit = 1 + f.crit * (f.critMult - 1);
+    const offense = f.damage * crit * (0.55 * f.atkSpeed + (0.45 * f.skillMult) / (1 - f.cdr)) * (1 + f.lifesteal * 3);
+    const toughness = f.maxHp / f.dmgTaken;
+    const power = Math.sqrt(offense * toughness) * 10 * (1 + 0.1 * gb.powers.size);
+    return { offense, toughness, power };
+  }
+
+  // How a piece of loot compares with what's worn in its slot (cached per gear change).
+  rateItem(item) {
+    if (item._rate && item._rate.v === this.gearVersion && item._rate.f === this.game.floor) return item._rate;
+    const cur = this.powerOf(this.equipment);
+    const next = this.powerOf({ ...this.equipment, [item.slot]: item });
+    const pct = (a, b) => (b / a - 1) * 100;
+    item._rate = { v: this.gearVersion, f: this.game.floor, power: next.power, now: cur.power, pct: pct(cur.power, next.power), off: pct(cur.offense, next.offense), def: pct(cur.toughness, next.toughness) };
+    return item._rate;
   }
 
   equip(item) {

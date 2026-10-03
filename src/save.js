@@ -18,7 +18,9 @@ function store() {
 
 export function packItem(it) {
   if (!it) return null;
-  return { ...it, rarity: it.rarity.id };
+  const { _rate, ...rest } = it;
+  void _rate;
+  return { ...rest, rarity: it.rarity.id };
 }
 
 export function unpackItem(o) {

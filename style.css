@@ -334,6 +334,54 @@ kbd {
   display: flex;
   justify-content: space-between;
 }
+.power {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin: 2px 0 2px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 13px;
+}
+.power b {
+  font-size: 15px;
+}
+.power .verdict {
+  font-weight: 800;
+}
+.power.up {
+  background: rgba(107, 255, 143, 0.12);
+}
+.power.up .verdict {
+  color: #6bff8f;
+}
+.power.down {
+  background: rgba(255, 107, 107, 0.1);
+}
+.power.down .verdict {
+  color: #ff6b6b;
+}
+.power.same .verdict {
+  color: var(--muted);
+}
+.powsub {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.powsub .up {
+  color: #6bff8f;
+}
+.powsub .down {
+  color: #ff6b6b;
+}
+.gearslot.heropower small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+}
 p.legend {
   margin: 6px 0 0;
   font-size: 12px;

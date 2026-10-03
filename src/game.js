@@ -771,12 +771,17 @@ export class Game {
     const beam = new THREE.Mesh(G.cyl(0.08, 0.3, 4, 8, true), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.25, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
     beam.position.y = 2;
     g.add(beam);
+    // a green arrow floats over loot that would make you stronger
+    const up = new THREE.Mesh(G.cone(0.16, 0.3, 4), this.upgradeMat || (this.upgradeMat = new THREE.MeshBasicMaterial({ color: 0x6bff8f })));
+    up.position.y = 1.85;
+    up.visible = false;
+    g.add(up);
     g.userData.dispose = () => {
       icon.userData.dispose && icon.userData.dispose();
       beam.material.dispose();
     };
     const a = rng.next() * Math.PI * 2;
-    const pk = { kind: 'item', item, x, y: 0, z, vx: Math.cos(a) * 2.5, vy: 0, vz: Math.sin(a) * 2.5, mesh: g, icon: holder, t: 0 };
+    const pk = { kind: 'item', item, x, y: 0, z, vx: Math.cos(a) * 2.5, vy: 0, vz: Math.sin(a) * 2.5, mesh: g, icon: holder, up, t: 0 };
     g.position.set(x, 0, z);
     this.scene.add(g);
     this.pickups.push(pk);
@@ -1583,7 +1588,7 @@ export class Game {
       this.nearEvent = null;
       this.ui.setEventCard(null);
     }
-    this.ui.setItemCard(this.nearItem ? this.nearItem.item : null, this.nearItem ? p.equipment[this.nearItem.item.slot] : null, p.equipment);
+    this.ui.setItemCard(this.nearItem ? this.nearItem.item : null, this.nearItem ? p.equipment[this.nearItem.item.slot] : null, p.equipment, this.nearItem ? p.rateItem(this.nearItem.item) : null);
     if (input.pressed.interact && this.portalAsk) this.enterPortal();
     else if (input.pressed.interact && this.nearEvent) this.useEvent();
     else if (input.pressed.interact && this.nearItem) this.equipNearItem();
@@ -1928,6 +1933,10 @@ export class Game {
       } else if (pk.kind === 'item') {
         pk.icon.rotation.y = pk.t * 1.8;
         pk.icon.position.y = 1.0 + Math.sin(pk.t * 3) * 0.12;
+        if (pk.up) {
+          pk.up.visible = !!p && p.rateItem(pk.item).pct > 0.5;
+          pk.up.position.y = 1.85 + Math.sin(pk.t * 4) * 0.08;
+        }
       }
       pk.mesh.position.set(pk.x, pk.y, pk.z);
     }

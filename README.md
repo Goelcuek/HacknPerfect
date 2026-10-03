@@ -250,6 +250,13 @@ chains dashes between targets.
   rarity; armor swaps the knight's shield, adds helmets, hats, spellbooks and capes dyed in the
   armor's rarity colour; epic+ charms orbit a gem around you and legendary armor crowns you with a
   halo. Legendary weapons shed sparks.
+- **Power rating.** Every item gets a **Power** score: the game equips it in a simulation and
+  measures your offence (damage per second from attacks and skills, with crits, cooldowns and life
+  steal) and toughness (effective health through armour). Power is the geometric mean of the two,
+  with +10% for each unique or set power. The loot card shows the item's power, the verdict against
+  what you wear (**▲ +12% upgrade**, **▼ −8%** or **≈ about the same**) and its effect on damage and
+  toughness. A green arrow floats over upgrades lying on the ground, and the pause screen shows
+  your hero power.
 - **Combos.** Hits within 2.5s chain into a combo; every 10 hits adds 2.5% damage (up to +25%).
 - **Chests, barrels and crates.** Chests open when you walk up to them; barrels and crates burst
   into gold and potions when hit. From floor 2 some chests are **Mimics** that lunge when you get

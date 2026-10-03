@@ -15,6 +15,16 @@ const PC_KEYS = ['Q', 'E', 'R', 'C'];
 const DIR_ARROWS = ['↑', '→', '↓', '←'];
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
+// Power rating: what this item does to your hero, against what you wear now.
+const pct = (v) => `${v >= 0 ? '+' : '−'}${Math.abs(v) < 10 ? Math.abs(v).toFixed(1) : Math.round(Math.abs(v))}%`;
+function powerHtml(r) {
+  if (!r) return '';
+  const cls = r.pct > 0.5 ? 'up' : r.pct < -0.5 ? 'down' : 'same';
+  const verdict = cls === 'up' ? `▲ ${pct(r.pct)} upgrade` : cls === 'down' ? `▼ ${pct(r.pct)}` : '≈ about the same';
+  const part = (name, v) => `<span class="${v > 0.5 ? 'up' : v < -0.5 ? 'down' : ''}">${name} ${pct(v)}</span>`;
+  return `<div class="power ${cls}"><span>⚡ Power <b>${fmtNum(r.power)}</b></span><span class="verdict">${verdict}</span></div><div class="powsub">${part('Damage', r.off)} · ${part('Toughness', r.def)}</div>`;
+}
+
 // The unique powers and set bonuses of an item, for the loot card and pause screen.
 function legendHtml(it, equipment) {
   return legendLines(it, equipment)
@@ -510,7 +520,7 @@ export class UI {
   }
 
   // ------------------------------------------------------------- item card
-  setItemCard(item, equipped, equipment = null) {
+  setItemCard(item, equipped, equipment = null, rate = null) {
     if (item === this.itemShown && equipped === this.itemEquipped) return;
     this.itemShown = item;
     this.itemEquipped = equipped;
@@ -524,6 +534,7 @@ export class UI {
     const looks = item.slot === 'weapon' ? 'changes your weapon' : item.slot === 'armor' ? 'changes your outfit' : 'adds an amulet';
     $('itemHeader').innerHTML = `<span style="color:${item.rarity.color}">${SLOT_ICON[item.slot]} ${esc(item.name)}</span><small>${item.rarity.name} ${item.slot} · floor ${item.level}${equipped ? ` · vs ${esc(equipped.name)}` : ' · slot empty'} · ${looks}</small>`;
     $('itemCompare').innerHTML =
+      powerHtml(rate) +
       formatStats(item, equipped || { stats: {} })
         .map((l) => `<div><span>${l.label}</span><span class="${l.cls}">${l.value}</span></div>`)
         .join('') + legendHtml(item, equipment);
@@ -661,7 +672,8 @@ export class UI {
     $('saveQuitBtn').classList.toggle('hidden', !!game.net.mode);
     $('quitBtn').textContent = game.net.mode ? 'Leave game' : 'Abandon run';
     const p = game.player;
-    $('gear').innerHTML = SLOTS.map((slot) => {
+    const hp = p.powerOf(p.equipment);
+    $('gear').innerHTML = `<div class="gearslot heropower">⚡ Hero power <b>${fmtNum(hp.power)}</b><small>offence ${fmtNum(hp.offense)} · toughness ${fmtNum(hp.toughness)}</small></div>` + SLOTS.map((slot) => {
       const it = p.equipment[slot];
       if (!it) return `<div class="gearslot"><b>${SLOT_ICON[slot]} Empty ${slot}</b></div>`;
       const lines = formatStats(it)
