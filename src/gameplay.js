@@ -214,13 +214,13 @@ export function installRunFeatures(Game) {
             p.gold -= s.price;
             s.sold = true;
             sfx.coin();
-            if (s.kind === 'item') this.dropItem(p.x, p.z, s.item);
+            if (s.kind === 'item') this.dropBought(e, s.item);
             else if (s.kind === 'elixir') {
               p.hp = p.final.maxHp;
               sfx.heal();
             } else {
               const it = this.gen(this.floor, p.clsId, 7, 2);
-              this.dropItem(p.x, p.z, it);
+              this.dropBought(e, it);
               this.ui.toast(`The cache holds: ${it.name}!`, 2, it.rarity.color);
             }
             render();
@@ -231,6 +231,26 @@ export function installRunFeatures(Game) {
     };
     this.openEventScreen({ title: '', rows: [] });
     render();
+  };
+
+  // Bought gear lands a step past the hero, away from the merchant, so it's easy to
+  // pick up without the merchant's card getting in the way.
+  P.dropBought = function (e, item) {
+    const p = this.player;
+    let dx = p.x - e.x;
+    let dz = p.z - e.z;
+    const d = Math.hypot(dx, dz) || 1;
+    dx /= d;
+    dz /= d;
+    let x = p.x + dx * 1.4;
+    let z = p.z + dz * 1.4;
+    if (this.dungeon.blocked(x, z, 0.3, p.y + 0.3)) {
+      x = p.x;
+      z = p.z;
+    }
+    const pk = this.dropItem(x, z, item);
+    pk.vx = dx * 1.5;
+    pk.vz = dz * 1.5;
   };
 
   P.openAltar = function (e) {

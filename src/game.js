@@ -1576,8 +1576,13 @@ export class Game {
         this.nearItem = pk;
       }
     }
-    // the portal question (or a merchant / altar / shrine) takes the card slot and F
-    if (this.portalAsk || this.nearEvent) this.nearItem = null;
+    // the portal question takes the card slot and F; loot on the ground beats a
+    // merchant / altar / shrine card (step off the item to use them)
+    if (this.portalAsk) this.nearItem = null;
+    else if (this.nearItem && this.nearEvent) {
+      this.nearEvent = null;
+      this.ui.setEventCard(null);
+    }
     this.ui.setItemCard(this.nearItem ? this.nearItem.item : null, this.nearItem ? p.equipment[this.nearItem.item.slot] : null, p.equipment);
     if (input.pressed.interact && this.portalAsk) this.enterPortal();
     else if (input.pressed.interact && this.nearEvent) this.useEvent();
