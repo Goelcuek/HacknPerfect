@@ -1666,14 +1666,17 @@ body:not(.touch) .pin-pad {
 }
 
 /* multiplayer pings */
+/* next to the pause button, its menu dropping down from there: clear of the touch
+   controls and skill buttons, and drawn on top of everything in the HUD */
 #pingWrap {
   position: absolute;
-  top: calc(180px + var(--safe-t));
-  right: calc(12px + var(--safe-r));
+  top: calc(10px + var(--safe-t));
+  right: calc(min(150px, 24vmin + 40px) + 72px + var(--safe-r));
   display: flex;
-  flex-direction: row-reverse;
-  align-items: flex-start;
+  flex-direction: column;
+  align-items: flex-end;
   gap: 6px;
+  z-index: 40;
 }
 #pingBtn {
   width: 44px;
@@ -1681,6 +1684,7 @@ body:not(.touch) .pin-pad {
   border-radius: 50%;
   padding: 0;
   font-size: 20px;
+  background: rgba(0, 0, 0, 0.45);
 }
 #pingMenu {
   display: grid;
@@ -1688,8 +1692,10 @@ body:not(.touch) .pin-pad {
   gap: 4px;
 }
 #pingMenu button {
-  padding: 6px 10px;
-  font-size: 13px;
+  padding: 8px 12px;
+  font-size: 14px;
+  white-space: nowrap;
+  background: rgba(16, 14, 28, 0.92);
 }
 
 /* PvP: host's mode choice and the arena scoreboard */

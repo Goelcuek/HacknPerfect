@@ -61,7 +61,7 @@ Co-op rules:
   separately, so nobody can grab everything; merchants, altars and freed prisoners are per player
   too.
 - **Pings:** `G` marks what you're looking at (an enemy means **Attack!**, an item **Loot!**,
-  otherwise **Here!**), `H` calls for **Help!**. On phones, tap 📍 under the minimap. Everyone sees a
+  otherwise **Here!**), `H` calls for **Help!**. On phones, tap 📍 next to the pause button. Everyone sees a
   coloured marker in the world and on the minimap, plus a toast with your name.
 - **More monsters, more loot:** +40% monsters per extra player (each with +40% health per extra
   player), a higher item and potion drop chance per extra player, and one extra item per chest.
@@ -172,7 +172,7 @@ chains dashes between targets.
 | Attack combo  | Left click / `J` (hold to chain) | Tap / hold **⚔**                     |
 | Skills        | `Q` `E` `R` `C` (or `1`–`4`) | **Swipe from ⚔** ↑ → ↓ ← (or tap the icon) |
 | Equip loot / use | `F`                      | **Equip** on the loot card, **Trade** / **Pray** / **Begin** on event cards |
-| Ping (co-op)  | `G` (smart ping), `H` (help) | 📍 under the minimap                    |
+| Ping (co-op)  | `G` (smart ping), `H` (help) | 📍 next to the pause button             |
 | Pause         | `Esc` / `P`                 | ❚❚ button                                |
 | Music on/off  | `M`                         | **Music** in the pause menu              |
 
